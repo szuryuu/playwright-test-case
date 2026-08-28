@@ -160,4 +160,159 @@ const REQUIRED_NOTES = [
     { title: 'Language Learning', body: 'Practice Spanish vocabulary' }
 ];
 
-module.exports = { runCommand, printSummaryReport, colors, REQUIRED_NOTES };
+// --- Shared DOM audits (extracted from sub1/sub2; both inherit the same
+// Sub-1 checks — see INSTRUCTION-SUB-1.md §4) ---
+
+const TITLE_SELECTORS = [
+  "note-form input",
+  "#title",
+  'input[name="title"]',
+  '[placeholder*="judul" i]',
+  '[placeholder*="title" i]',
+  'input[type="text"]:not([placeholder*="cari" i]):not([placeholder*="search" i]):not([id*="search" i]):not([class*="search" i])',
+  'input:not([type="search"]):not([id*="search" i]):not([class*="search" i]):not([placeholder*="cari" i])',
+];
+
+const BODY_SELECTORS = [
+  "note-form textarea",
+  "#body",
+  'textarea[name="body"]',
+  '[placeholder*="isi" i]',
+  '[placeholder*="note" i]',
+  "textarea",
+];
+
+const SUBMIT_SELECTORS = [
+  'note-form button[type="submit"]',
+  "note-form button",
+  'button[type="submit"]',
+  'button:has-text("Tambah")',
+  'button:has-text("Simpan")',
+  'button:has-text("Add")',
+  'button:has-text("Submit")',
+  'form button:not([type="reset"]):not([type="button"]):not(:has-text("Batal")):not(:has-text("Bersih"))',
+  "form button",
+];
+
+async function detectFormInputs(page) {
+  for (const sel of TITLE_SELECTORS) {
+    const el = page.locator(sel).first();
+    if (await el.isVisible().catch(() => false)) {
+      for (const bodySel of BODY_SELECTORS) {
+        const bodyEl = page.locator(bodySel).first();
+        if (await bodyEl.isVisible().catch(() => false)) {
+          for (const subSel of SUBMIT_SELECTORS) {
+            const btn = page.locator(subSel).first();
+            if (await btn.isVisible().catch(() => false)) {
+              return { titleInput: el, bodyInput: bodyEl, submitBtn: btn };
+            }
+          }
+          return { titleInput: el, bodyInput: bodyEl, submitBtn: null };
+        }
+      }
+      return { titleInput: el, bodyInput: null, submitBtn: null };
+    }
+  }
+  return { titleInput: null, bodyInput: null, submitBtn: null };
+}
+
+async function checkRealtimeValidation(page, titleInput) {
+  const hasHTML5Validation = await titleInput.evaluate((el) =>
+    el.hasAttribute("required") || el.hasAttribute("minlength"),
+  );
+
+  await titleInput.fill("");
+  await titleInput.type("a");
+  await titleInput.evaluate((el) => el.dispatchEvent(new Event("blur")));
+  await page.waitForTimeout(500);
+
+  const isValid = await titleInput.evaluate((el) => el.validity.valid);
+  const hasCustomError = await page.evaluate(() => {
+    const html = document.body.innerHTML.toLowerCase();
+    return (
+      html.includes("tidak boleh kosong") ||
+      html.includes("harus diisi") ||
+      html.includes("wajib diisi") ||
+      html.includes("minimal") ||
+      html.includes("karakter")
+    );
+  });
+
+  return hasHTML5Validation || !isValid || hasCustomError;
+}
+
+async function scanWebComponents(page) {
+  return await page.evaluate(() => {
+    const customTags = new Set();
+    let hasCustomAttr = false;
+    const standardAttrs = [
+      "id", "class", "style", "type", "name", "value", "placeholder",
+      "required", "minlength", "maxlength",
+    ];
+
+    function scanNode(node) {
+      if (node.tagName && node.tagName.includes("-")) {
+        customTags.add(`<${node.tagName.toLowerCase()}>`);
+        Array.from(node.attributes).forEach((attr) => {
+          if (!standardAttrs.includes(attr.name.toLowerCase())) hasCustomAttr = true;
+        });
+      }
+      if (node.shadowRoot) node.shadowRoot.childNodes.forEach(scanNode);
+      node.childNodes.forEach(scanNode);
+    }
+    scanNode(document.body);
+    return { tags: Array.from(customTags), hasCustomAttr };
+  });
+}
+
+async function detectGrid(page) {
+  return await page.evaluate(() => {
+    let foundGridContext = null;
+    function scanNode(node) {
+      if (!node || node.nodeType !== 1 || foundGridContext) return;
+
+      const style = window.getComputedStyle(node);
+      if (style.display === "grid" || style.display === "inline-grid") {
+        const childTags = Array.from(node.children).map((c) => c.tagName.toLowerCase());
+        const childrenCount = childTags.filter((t) => !["style", "script", "template"].includes(t)).length;
+        const hasSlot = childTags.includes("slot");
+
+        const id = (node.id || "").toLowerCase();
+        const className = (typeof node.className === "string" ? node.className : "").toLowerCase();
+        const tag = node.tagName.toLowerCase();
+
+        if (tag !== "body" && tag !== "html" && tag !== "main") {
+          if (
+            childrenCount >= 2 || hasSlot ||
+            id.includes("list") || id.includes("note") || id.includes("container") || id.includes("grid") || id.includes("card") ||
+            className.includes("list") || className.includes("note") || className.includes("container") || className.includes("grid") || className.includes("card") ||
+            tag.includes("list") || tag.includes("grid") || tag.includes("card")
+          ) {
+            let descriptor = tag;
+            if (node.id) descriptor += `#${node.id}`;
+            if (typeof node.className === "string" && node.className.trim() !== "") {
+              descriptor += `.${node.className.trim().replace(/\s+/g, ".")}`;
+            }
+            foundGridContext = descriptor;
+          }
+        }
+      }
+
+      if (node.shadowRoot) scanNode(node.shadowRoot);
+      Array.from(node.children).forEach(scanNode);
+    }
+    scanNode(document.body);
+    return foundGridContext;
+  });
+}
+
+module.exports = {
+  runCommand,
+  printSummaryReport,
+  colors,
+  REQUIRED_NOTES,
+  detectFormInputs,
+  checkRealtimeValidation,
+  scanWebComponents,
+  detectGrid,
+};
