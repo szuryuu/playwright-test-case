@@ -1,22 +1,38 @@
-const { runSub1Tests } = require("./sub1");
-const { runSub2Tests } = require("./sub2");
-const { runSub3Tests } = require("./sub3/index");
+const { runSub1Tests } = require("./fe/fundamental/sub1/index");
+const { runSub2Tests } = require("./fe/fundamental/sub2/index");
+const { runSub3Tests } = require("./fe/beginner/sub1/index");
 
-const subType = process.argv[2];
+// CLI-facing taxonomy key → internal module. The key is decoupled from
+// file/module names: `fe/beginner/sub1` points at `fe/beginner/sub1/`.
+const REGISTRY = {
+  "fe/fundamental/sub1": { run: (dir) => runSub1Tests(dir) },
+  "fe/fundamental/sub2": { run: (dir) => runSub2Tests(dir) },
+  "fe/beginner/sub1": { run: (dir, username) => runSub3Tests(dir, username) },
+};
+
+const registryKey = process.argv[2];
 const targetDir = process.argv[3];
+const username = process.argv[4];
 
-if (!subType || !targetDir) {
-  console.error("❌ [ERROR] Insufficient arguments provided to runner.js");
+if (!registryKey || !targetDir) {
+  console.error("[-] [ERROR] Insufficient arguments provided to runner.js");
   process.exit(1);
 }
 
-if (subType === "sub1") {
-  runSub1Tests(targetDir);
-} else if (subType === "sub2") {
-  runSub2Tests(targetDir);
-} else if (subType === "sub3") {
-  runSub3Tests(targetDir);
-} else {
-  console.error(`❌ [ERROR] Unrecognized pipeline: ${subType}`);
+const entry = REGISTRY[registryKey];
+if (!entry) {
+  console.error(
+    `\x1b[31m\x1b[1m❌ [ERROR] Unrecognized pipeline: ${registryKey} (not in registry)\x1b[0m`,
+  );
   process.exit(1);
 }
+
+// username is only meaningful for fe/beginner/sub1 today; other subs
+// accept-but-ignore it so a script that always appends one keeps working.
+if (username && registryKey !== "fe/beginner/sub1") {
+  console.log(
+    `\x1b[36m[i] username ignored: not applicable to ${registryKey}\x1b[0m`,
+  );
+}
+
+entry.run(targetDir, username);

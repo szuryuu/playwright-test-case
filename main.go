@@ -29,22 +29,74 @@ type PackageJSON struct {
 var forbiddenFrameworks = []string{"react", "vue", "@angular/core", "nuxt", "next"}
 
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Printf("%s[-] [ERROR] Usage: reviewer <sub1|sub2|sub3> [path-to-zip]%s\n", Red, Reset)
+	args := os.Args[1:]
+
+	// Deprecated 1-arg alias: reviewer <sub1|sub2|sub3> [zip].
+	// sub1/sub2 → fe/fundamental/*; sub3 was beginner's first submission.
+	if len(args) >= 1 && isLegacySub(args[0]) {
+		group, class, sub := "fe", "fundamental", args[0]
+		if args[0] == "sub3" {
+			class, sub = "beginner", "sub1"
+		}
+		fmt.Printf("%s[i] [INFO] Deprecated 1-arg invocation. Mapping %s → %s/%s/%s. Use: reviewer <group> <class> <sub> [path-to-zip] [username]%s\n", Yellow, args[0], group, class, sub, Reset)
+		zipPath := ""
+		if len(args) >= 2 {
+			zipPath = args[1]
+		}
+		runReview(group, class, sub, zipPath, "")
+		return
+	}
+
+	if len(args) < 3 {
+		printUsage()
 		os.Exit(1)
 	}
 
-	submissionType := os.Args[1]
-	var zipPath string
+	group, class, sub := args[0], args[1], args[2]
 
-	if len(os.Args) >= 3 {
-		zipPath = os.Args[2]
-	} else {
+	var zipPath, username string
+	if len(args) >= 4 {
+		if strings.HasSuffix(strings.ToLower(args[3]), ".zip") {
+			zipPath = args[3]
+			if len(args) >= 5 {
+				username = args[4]
+			}
+			if len(args) > 5 {
+				fmt.Printf("%s[-] [ERROR] Too many arguments.%s\n", Red, Reset)
+				printUsage()
+				os.Exit(1)
+			}
+		} else {
+			// A non-.zip 4th positional is the username; auto-detect the zip.
+			username = args[3]
+			if len(args) >= 5 {
+				fmt.Printf("%s[-] [ERROR] Too many arguments: unexpected %q after username.%s\n", Red, args[4], Reset)
+				printUsage()
+				os.Exit(1)
+			}
+		}
+	}
+
+	runReview(group, class, sub, zipPath, username)
+}
+
+func printUsage() {
+	fmt.Printf("%s[-] [ERROR] Usage: reviewer <group> <class> <sub> [path-to-zip] [username]%s\n", Red, Reset)
+}
+
+func isLegacySub(s string) bool {
+	return s == "sub1" || s == "sub2" || s == "sub3"
+}
+
+func runReview(group, class, sub, zipPath, username string) {
+	registryKey := group + "/" + class + "/" + sub
+
+	if zipPath == "" {
 		fmt.Printf("%s[i] [INFO] No ZIP path provided. Searching for the newest submission...%s\n", Cyan, Reset)
 		zipPath = getLatestZip()
 	}
 
-	fmt.Printf("\n%s%s[>] [LAYER 1] Starting Static Analysis for %s: %s%s\n", Bold, Cyan, strings.ToUpper(submissionType), zipPath, Reset)
+	fmt.Printf("\n%s%s[>] [LAYER 1] Starting Static Analysis for %s: %s%s\n", Bold, Cyan, strings.ToUpper(registryKey), zipPath, Reset)
 
 	tmpDir, err := os.MkdirTemp("", "dicoding-review-*")
 	if err != nil {
@@ -67,7 +119,7 @@ func main() {
 	}
 
 	fmt.Printf("%s%s[*] [LAYER 2] Handing over to Playwright E2E Runner...%s\n", Bold, Cyan, Reset)
-	runPlaywrightRunner(submissionType, actualProjectDir)
+	runPlaywrightRunner(registryKey, actualProjectDir, username)
 }
 
 func getLatestZip() string {
@@ -223,12 +275,12 @@ func resolveTargetDirectory(baseDir string) string {
 	return projectRoot
 }
 
-func runPlaywrightRunner(subType string, targetDir string) {
+func runPlaywrightRunner(registryKey string, targetDir string, username string) {
 	executablePath, _ := os.Executable()
 	baseDir := filepath.Dir(executablePath)
 	runnerPath := filepath.Join(baseDir, "runner.js")
 
-	cmd := exec.Command("node", runnerPath, subType, targetDir)
+	cmd := exec.Command("node", runnerPath, registryKey, targetDir, username)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
