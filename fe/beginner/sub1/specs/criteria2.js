@@ -1,4 +1,4 @@
-const { colors } = require("../../utils");
+const { colors } = require("../../../../utils");
 
 module.exports = async function runCriteria2(page, report) {
   try {

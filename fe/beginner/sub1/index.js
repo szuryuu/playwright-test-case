@@ -1,7 +1,7 @@
 const { chromium } = require("playwright");
 const { spawn } = require("child_process");
 const path = require("path");
-const { runCommand, printSummaryReport, colors } = require("../utils");
+const { runCommand, printSummaryReport, colors } = require("../../../utils");
 const { generateFeedback } = require("./feedback");
 
 const validateReject = require("./specs/reject");
@@ -9,7 +9,7 @@ const runCriteria1 = require("./specs/criteria1");
 const runCriteria2 = require("./specs/criteria2");
 const runCriteria3 = require("./specs/criteria3");
 
-async function runSub3Tests(targetDir) {
+async function runSub3Tests(targetDir, username) {
   const report = {
     rejected: [],
     mandatory: {
@@ -90,7 +90,7 @@ async function runSub3Tests(targetDir) {
     );
     await page.goto(dynamicUrl, { waitUntil: "domcontentloaded" });
 
-    await validateReject(page, report);
+    await validateReject(page, report, username);
     await runCriteria1(page, report);
     await runCriteria3(page, report);
     await runCriteria2(page, report);
