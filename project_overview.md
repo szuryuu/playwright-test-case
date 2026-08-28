@@ -55,7 +55,7 @@ The pipeline operates on a Two-Layer architecture:
 ## 5. Execution Protocol
 1. Download the student's `.zip` file.
 2. Open terminal in the pipeline root directory.
-3. Execute the binary: `./reviewer <sub1|sub2> [optional-absolute-path-to-zip]`
+3. Execute the binary: `./reviewer <group> <class> <sub> [path-to-zip] [username]` (e.g. `./reviewer fe fundamental sub1 ./submission.zip`); username is accepted only when a zip path is given, and only affects `fe/beginner/sub1`.
 4. Monitor the terminal logs.
 5. Perform manual visual checks (aesthetics, animations) during the final automated browser freeze.
 6. The temporary directory is automatically purged upon completion.
