@@ -12,7 +12,23 @@ const colors = {
 function runCommand(command, cwd) {
   try {
     execSync(command, { cwd, stdio: "ignore" });
-  } catch (e) {}
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+// Normalizes boolean | "PASS: ..." | "FAIL: ..." | "INFO: ..." report values
+// to a single pass/fail/info verdict for both display and scoring.
+function resultKind(value) {
+  if (value === true) return "pass";
+  if (typeof value === "string") {
+    const v = value.trim().toUpperCase();
+    if (v.startsWith("PASS")) return "pass";
+    if (v.startsWith("FAIL")) return "fail";
+    if (v.startsWith("INFO")) return "info";
+  }
+  return "fail";
 }
 
 function printSummaryReport(report) {
@@ -38,8 +54,9 @@ function printSummaryReport(report) {
 
   console.log(`${colors.bold} --- MANDATORY CRITERIA ---${colors.reset}`);
   for (const [criteria, passed] of Object.entries(report.mandatory)) {
-    const statusText = passed ? "[PASS]" : "[FAIL]";
-    const color = passed ? colors.green : colors.red;
+    const kind = resultKind(passed);
+    const statusText = kind === "pass" ? "[PASS]" : kind === "info" ? "[INFO]" : "[FAIL]";
+    const color = kind === "pass" ? colors.green : kind === "info" ? colors.yellow : colors.red;
     console.log(
       `  ${color}${statusText.padEnd(6)}${colors.reset} | ${criteria}`,
     );
@@ -48,8 +65,9 @@ function printSummaryReport(report) {
   console.log(`\n${colors.bold} --- OPTIONAL SUGGESTIONS ---${colors.reset}`);
   if (report.optional && Object.keys(report.optional).length > 0) {
     for (const [criteria, passed] of Object.entries(report.optional)) {
-      const statusText = passed ? "[PASS]" : "[FAIL]";
-      const color = passed ? colors.green : colors.red;
+      const kind = resultKind(passed);
+      const statusText = kind === "pass" ? "[PASS]" : kind === "info" ? "[INFO]" : "[FAIL]";
+      const color = kind === "pass" ? colors.green : kind === "info" ? colors.yellow : colors.red;
       console.log(
         `  ${color}${statusText.padEnd(6)}${colors.reset} | ${criteria}`,
       );
@@ -62,7 +80,7 @@ function printSummaryReport(report) {
 
   const m = report.mandatory;
   const isSub3 = Object.keys(m).some((k) => k.includes("Criteria 1 Basic"));
-  const totalPassed = Object.values(m).filter((v) => v === true).length;
+  const totalPassed = Object.values(m).filter((v) => resultKind(v) === "pass").length;
   const totalCriteria = Object.keys(m).length;
   const score = Math.round((totalPassed / totalCriteria) * 100);
 
@@ -122,4 +140,24 @@ function printSummaryReport(report) {
   );
 }
 
-module.exports = { runCommand, printSummaryReport, colors };
+// SOURCE OF TRUTH: The exact 15 dummy notes required by Dicoding for Sub 1.
+// Restored in commit after 1ae207b accidentally removed it (see git log).
+const REQUIRED_NOTES = [
+    { title: 'Welcome to Notes, Dimas!', body: 'Welcome to Notes! This is your first note.' },
+    { title: 'Meeting Agenda', body: 'Discuss project updates and assign tasks' },
+    { title: 'Shopping List', body: 'Milk, eggs, bread, fruits' },
+    { title: 'Personal Goals', body: 'Read two books per month' },
+    { title: 'Recipe: Spaghetti Bolognese', body: 'Ingredients: ground beef' },
+    { title: 'Workout Routine', body: 'Monday: Cardio' },
+    { title: 'Book Recommendations', body: '1. \'The Alchemist\'' },
+    { title: 'Daily Reflections', body: 'Write down three positive things' },
+    { title: 'Travel Bucket List', body: '1. Paris, France' },
+    { title: 'Coding Projects', body: '1. Build a personal website' },
+    { title: 'Project Deadline', body: 'Complete project tasks by the deadline' },
+    { title: 'Health Checkup', body: 'Schedule a routine health checkup' },
+    { title: 'Financial Goals', body: '1. Create a monthly budget' },
+    { title: 'Holiday Plans', body: 'Research and plan for the upcoming holiday' },
+    { title: 'Language Learning', body: 'Practice Spanish vocabulary' }
+];
+
+module.exports = { runCommand, printSummaryReport, colors, REQUIRED_NOTES };
