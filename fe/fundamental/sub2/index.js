@@ -1,10 +1,12 @@
 const { chromium } = require("playwright");
 const { spawn } = require("child_process");
-const { printSummaryReport, colors } = require("../../../utils");
+const { resultKind, printSummaryReport, colors } = require("../../../utils");
+const { buildInsightBlock, buildFailedSuggestionFeedback } = require("../../../suggestions");
 
 const runStatic = require("./specs/static");
 const runInherited = require("./specs/inherited");
 const runApi = require("./specs/api");
+const runAnimation = require("./specs/animation");
 
 async function runSub2Tests(targetDir) {
   const report = {
@@ -78,10 +80,17 @@ async function runSub2Tests(targetDir) {
     await page.goto(dynamicUrl, { waitUntil: "domcontentloaded" });
     await page.waitForLoadState("networkidle");
 
-    const form = await runInherited(page, report);
+    const form = await runInherited(page, report, targetDir);
     const { missingMethods } = await runApi(page, report, form);
+    await runAnimation(page, report);
 
     printSummaryReport(report);
+
+    const allPassed = Object.values(report.mandatory).every((v) => resultKind(v) === "pass");
+    if (allPassed) {
+      const feedback = buildFailedSuggestionFeedback("fe-fundamental-sub2", report.optional);
+      console.log(feedback || buildInsightBlock("fe-fundamental-sub2"));
+    }
 
     if (missingMethods.length > 0) {
       process.exitCode = 1;

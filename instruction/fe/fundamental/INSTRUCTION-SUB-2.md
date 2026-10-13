@@ -158,7 +158,7 @@ spec wins.
 
 | Dicoding criterion | `fe/fundamental/sub2/index.js` report key | Verification method | Status |
 |---|---|---|---|
-| Kriteria 1 → sub-check: form | `Criteria 1.1: Inherited Sub 1 Form Functionality` | Fill/submit + input tag-type check (reuses Sub-1-style logic) | 🤖 Automated |
+| Kriteria 1 → sub-check: form | `Criteria 1.1: Inherited Sub 1 Form Functionality` | Fill/submit + input tag-type check (reuses Sub-1-style logic, incl. static source scan + button-click reveal for hidden forms) | 🤖 Automated |
 | Kriteria 1 → sub-check: Web Components | `Criteria 1.2: Inherited Sub 1 Web Components (Min 3)` | Recursive custom-tag scan | 🤖 Automated |
 | Kriteria 1 → sub-check: CSS Grid | `Criteria 1.3: Inherited Sub 1 CSS Grid Layout` | Computed style extraction | 🤖 Automated |
 | Kriteria 2 (REST API CRUD) | `Criteria 2: REST API Integrated (GET, POST, DELETE)` | Network interceptor watching `notes-api.dicoding.dev/v2/notes` for GET/POST/DELETE | 🤖 Hybrid — delete is manually clicked per `project_overview.md` |
@@ -167,7 +167,7 @@ spec wins.
 | Kriteria 5 (loading indicator) | `Criteria 5: Loading Indicator Rendered` | Network throttling (2s delay) + DOM text/element scan while request is pending | 🤖 Automated |
 | Saran 1 (archive) | `Suggestion 1: Archive & Unarchive Implementation` | Network interceptor watching for `POST /archive`-style calls | 🤖 Hybrid — manual click required |
 | Saran 2 (error feedback) | `Suggestion 2: Error Feedback Handled` | Forced network abort (simulated 500) + alert/DOM scan for error text | 🤖 Automated |
-| Saran 3 (animation) | `Suggestion 3: Animation` | `package.json` scan for known animation libs, **or** keyword grep across files | 🤖 Automated (heuristic — won't catch hand-rolled CSS-only animation with no matching keyword) |
+| Saran 3 (animation) | `Suggestion 3: Animation` | Runtime Playwright check (`document.getAnimations()` + hover-triggered CSS transition) → `PASS` when motion is observed; falls back to static `package.json` lib scan / keyword grep → `INFO` | 🤖 Automated |
 | Saran 4 (Prettier) | `Suggestion 4: Prettier Formatter Configured` | Filesystem scan for `.prettierrc` | 🤖 Automated — confirm it also checks `package.json` devDependencies per the reviewer guideline, not just the config file |
 
 **Runtime setup specifics baked into `fe/fundamental/sub2/index.js`:**

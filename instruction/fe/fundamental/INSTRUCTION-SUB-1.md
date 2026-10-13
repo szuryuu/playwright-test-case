@@ -140,11 +140,11 @@ from Section 1/2 above, the **spec above wins** and `fe/fundamental/sub1/index.j
 | Dicoding criterion | `fe/fundamental/sub1/index.js` report key | Verification method | Status |
 |---|---|---|---|
 | Kriteria 1 (render dummy notes) | `Criteria 1: Render 15 Notes (Title & Body)` | Playwright `getByText`, pierces Shadow DOM, expects exact count of **15** | 🤖 Automated — ⚠️ hardcodes "15"; confirm the current dummy dataset still has exactly 15 items |
-| Kriteria 2 (add-note form) | `Criteria 2: Add Note Form Functionality` | Fill & submit via Playwright; checks tag types of title/body inputs | 🤖 Automated |
+| Kriteria 2 (add-note form) | `Criteria 2: Add Note Form Functionality` | Fill & submit via Playwright; checks tag types of title/body inputs. Static source scan + button-click reveal when the form is hidden behind a toggle | 🤖 Automated |
 | Kriteria 3 (CSS Grid) | `Criteria 3: CSS Grid Layout Detected` | Computed style extraction (`display: grid`) on the list container | 🤖 Automated |
 | Kriteria 4 (Web Component ×3) | `Criteria 4: Web Components (Min 3)` | Recursive Shadow-DOM custom-tag scan (tag names containing `-`) | 🤖 Automated |
 | Saran 1 (aesthetics) | *(not in report keys — see `project_overview.md`: 15s manual window)* | Human visual inspection | 👁️ Manual |
-| Saran 2 (realtime validation) | `Suggestion 2: Realtime Form Validation` | Chromium `ValidityState` API extraction | 🤖 Automated |
+| Saran 2 (realtime validation) | `Suggestion 2: Realtime Form Validation` | Visible error text appearing while typing (before/after diff on `input`, no blur/submit). Validator is armed first (valid value + blur) so blur-then-live implementations are caught | 🤖 Automated |
 | Saran 3 (custom attribute) | `Suggestion 3: Custom Attributes on Web Components` | Node attribute iterator, filters out standard HTML attrs | 🤖 Automated |
 | Saran 4 (responsive) | `Suggestion 4: Mobile Responsiveness (No Overflow)` | Viewport resize to 390px + overflow check | 🤖 Automated |
 

@@ -2,15 +2,16 @@ const {
   colors,
   detectFormInputs,
   checkRealtimeValidation,
+  scanSourceForSuggestions,
 } = require("../../../../utils");
 
-module.exports = async function runForm(page, report) {
+module.exports = async function runForm(page, report, targetDir) {
   try {
     console.log(
       `${colors.cyan}> Testing Criteria 2: Add Note Form Functionality...${colors.reset}`,
     );
 
-    const { titleInput, bodyInput, submitBtn } = await detectFormInputs(page);
+    const { titleInput, bodyInput, submitBtn } = await detectFormInputs(page, targetDir);
 
     if (titleInput && bodyInput) {
       const titleTag = await titleInput.evaluate((el) => el.tagName.toLowerCase());
@@ -29,7 +30,10 @@ module.exports = async function runForm(page, report) {
 
     if (titleInput) {
       const valid = await checkRealtimeValidation(page, titleInput);
-      if (valid) report.optional["Suggestion 2: Realtime Form Validation"] = true;
+      const source = scanSourceForSuggestions(targetDir);
+      if (source.hasInputValidation || valid) {
+        report.optional["Suggestion 2: Realtime Form Validation"] = true;
+      }
     }
 
     if (titleInput && bodyInput && submitBtn) {

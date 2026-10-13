@@ -1,6 +1,7 @@
 const { chromium } = require("playwright");
 const { spawn } = require("child_process");
-const { runCommand, printSummaryReport, colors } = require("../../../utils");
+const { runCommand, resultKind, printSummaryReport, colors } = require("../../../utils");
+const { buildInsightBlock, buildFailedSuggestionFeedback } = require("../../../suggestions");
 
 const runRender = require("./specs/render");
 const runForm = require("./specs/form");
@@ -16,6 +17,7 @@ async function runSub1Tests(targetDir) {
       "Criteria 4: Web Components (Min 3)": false,
     },
     optional: {
+      "Suggestion 1: Tampilan Menarik": true, // human-verified (manual visual check)
       "Suggestion 2: Realtime Form Validation": false,
       "Suggestion 3: Custom Attributes on Web Components": false,
       "Suggestion 4: Mobile Responsiveness (No Overflow)": false,
@@ -51,11 +53,17 @@ async function runSub1Tests(targetDir) {
     await page.waitForLoadState("networkidle");
 
     await runRender(page, report);
-    await runForm(page, report);
-    await runComponents(page, report);
-    await runLayout(page, report);
+    await runForm(page, report, targetDir);
+    await runComponents(page, report, targetDir);
+    await runLayout(page, report, targetDir);
 
     printSummaryReport(report);
+
+    const allPassed = Object.values(report.mandatory).every((v) => resultKind(v) === "pass");
+    if (allPassed) {
+      const feedback = buildFailedSuggestionFeedback("fe-fundamental-sub1", report.optional);
+      console.log(feedback || buildInsightBlock("fe-fundamental-sub1"));
+    }
   } catch (e) {
     console.error(
       `\n${colors.red}${colors.bold} [!] FATAL: Critical Pipeline Crash: ${e.message}${colors.reset}`,

@@ -1,4 +1,6 @@
 const { execSync } = require("child_process");
+const fs = require("fs");
+const path = require("path");
 
 const colors = {
   reset: "\x1b[0m",
@@ -57,8 +59,10 @@ function printSummaryReport(report) {
     const kind = resultKind(passed);
     const statusText = kind === "pass" ? "[PASS]" : kind === "info" ? "[INFO]" : "[FAIL]";
     const color = kind === "pass" ? colors.green : kind === "info" ? colors.yellow : colors.red;
+    const detail =
+      typeof passed === "string" ? ` — ${passed.replace(/^\s*(PASS|FAIL|INFO):\s*/i, "")}` : "";
     console.log(
-      `  ${color}${statusText.padEnd(6)}${colors.reset} | ${criteria}`,
+      `  ${color}${statusText.padEnd(6)}${colors.reset} | ${criteria}${color}${detail}${colors.reset}`,
     );
   }
 
@@ -68,8 +72,10 @@ function printSummaryReport(report) {
       const kind = resultKind(passed);
       const statusText = kind === "pass" ? "[PASS]" : kind === "info" ? "[INFO]" : "[FAIL]";
       const color = kind === "pass" ? colors.green : kind === "info" ? colors.yellow : colors.red;
+      const detail =
+        typeof passed === "string" ? ` — ${passed.replace(/^\s*(PASS|FAIL|INFO):\s*/i, "")}` : "";
       console.log(
-        `  ${color}${statusText.padEnd(6)}${colors.reset} | ${criteria}`,
+        `  ${color}${statusText.padEnd(6)}${colors.reset} | ${criteria}${color}${detail}${colors.reset}`,
       );
     }
   } else {
@@ -83,6 +89,10 @@ function printSummaryReport(report) {
   const totalPassed = Object.values(m).filter((v) => resultKind(v) === "pass").length;
   const totalCriteria = Object.keys(m).length;
   const score = Math.round((totalPassed / totalCriteria) * 100);
+
+  const optValues = report.optional ? Object.values(report.optional) : [];
+  const optTotal = optValues.length;
+  const optPassed = optValues.filter((v) => resultKind(v) === "pass").length;
 
   let stars = 0;
   let statusText = "";
@@ -116,10 +126,18 @@ function printSummaryReport(report) {
       stars = 0;
       statusText = "REJECT (Belum memenuhi standar minimum)";
       statusColor = colors.red;
-    } else {
+    } else if (optPassed >= 3) {
       stars = 5;
-      statusText = "LULUS (Semua kriteria terpenuhi)";
+      statusText = "LULUS - Bintang 5 (Sempurna)";
+      statusColor = colors.cyan;
+    } else if (optPassed >= 2) {
+      stars = 4;
+      statusText = "LULUS - Bintang 4 (Sangat Baik)";
       statusColor = colors.green;
+    } else {
+      stars = 3;
+      statusText = "LULUS - Bintang 3 (Baik)";
+      statusColor = colors.yellow;
     }
   }
 
@@ -127,6 +145,9 @@ function printSummaryReport(report) {
 
   console.log(`\n${colors.bold} === PREDIKSI PENILAIAN ===${colors.reset}`);
   console.log(`  Skor  : ${totalPassed} / ${totalCriteria} (${score}%)`);
+  if (optTotal > 0) {
+    console.log(`  Saran : ${optPassed} / ${optTotal} terpenuhi`);
+  }
   console.log(`  Rating: ${statusColor}${starVisual}${colors.reset}`);
   console.log(
     `  Status: ${statusColor}${colors.bold}${statusText}${colors.reset}`,
@@ -167,8 +188,8 @@ const TITLE_SELECTORS = [
   "note-form input",
   "#title",
   'input[name="title"]',
-  '[placeholder*="judul" i]',
-  '[placeholder*="title" i]',
+  'input[placeholder*="judul" i]',
+  'input[placeholder*="title" i]',
   'input[type="text"]:not([placeholder*="cari" i]):not([placeholder*="search" i]):not([id*="search" i]):not([class*="search" i])',
   'input:not([type="search"]):not([id*="search" i]):not([class*="search" i]):not([placeholder*="cari" i])',
 ];
@@ -177,8 +198,8 @@ const BODY_SELECTORS = [
   "note-form textarea",
   "#body",
   'textarea[name="body"]',
-  '[placeholder*="isi" i]',
-  '[placeholder*="note" i]',
+  'textarea[placeholder*="isi" i]',
+  'textarea[placeholder*="note" i]',
   "textarea",
 ];
 
@@ -194,55 +215,340 @@ const SUBMIT_SELECTORS = [
   "form button",
 ];
 
-async function detectFormInputs(page) {
+async function tryDetectFormInputs(page) {
+  // 1. Find a visible title-like input first.
+  let titleInput = null;
   for (const sel of TITLE_SELECTORS) {
     const el = page.locator(sel).first();
     if (await el.isVisible().catch(() => false)) {
-      for (const bodySel of BODY_SELECTORS) {
-        const bodyEl = page.locator(bodySel).first();
-        if (await bodyEl.isVisible().catch(() => false)) {
-          for (const subSel of SUBMIT_SELECTORS) {
-            const btn = page.locator(subSel).first();
-            if (await btn.isVisible().catch(() => false)) {
-              return { titleInput: el, bodyInput: bodyEl, submitBtn: btn };
-            }
-          }
-          return { titleInput: el, bodyInput: bodyEl, submitBtn: null };
-        }
-      }
-      return { titleInput: el, bodyInput: null, submitBtn: null };
+      titleInput = el;
+      break;
     }
   }
-  return { titleInput: null, bodyInput: null, submitBtn: null };
+  if (!titleInput) return { titleInput: null, bodyInput: null, submitBtn: null };
+
+  // 2. Scope body + submit to the form that owns the title input, so a
+  //    search bar elsewhere on the page can't be mistaken for the note form.
+  const formLoc = page.locator("form").filter({ has: titleInput });
+  if ((await formLoc.count()) > 0) {
+    const form = formLoc.first();
+    const bodyEl = form.locator("textarea").first();
+    const btn = form.locator('button[type="submit"], button').first();
+    if (
+      (await bodyEl.isVisible().catch(() => false)) &&
+      (await btn.isVisible().catch(() => false))
+    ) {
+      return { titleInput, bodyInput: bodyEl, submitBtn: btn };
+    }
+  }
+
+  // 3. Fallback: global selectors (form-less or unusual markup).
+  for (const bodySel of BODY_SELECTORS) {
+    const bodyEl = page.locator(bodySel).first();
+    if (await bodyEl.isVisible().catch(() => false)) {
+      for (const subSel of SUBMIT_SELECTORS) {
+        const btn = page.locator(subSel).first();
+        if (await btn.isVisible().catch(() => false)) {
+          return { titleInput, bodyInput: bodyEl, submitBtn: btn };
+        }
+      }
+      return { titleInput, bodyInput: bodyEl, submitBtn: null };
+    }
+  }
+  return { titleInput, bodyInput: null, submitBtn: null };
 }
 
-async function checkRealtimeValidation(page, titleInput) {
-  const hasHTML5Validation = await titleInput.evaluate((el) =>
-    el.hasAttribute("required") || el.hasAttribute("minlength"),
+// Walk a submission's source tree (excluding build/dependency dirs) and return
+// every HTML/JS/CSS file path. Shared by the static-source scanners.
+function collectSourceFiles(targetDir) {
+  const files = [];
+  if (!targetDir) return files;
+  const walk = (dir) => {
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch (e) {
+      return;
+    }
+    for (const entry of entries) {
+      if (["node_modules", ".git", "dist"].includes(entry.name)) continue;
+      const p = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(p);
+      else if (/\.(html|js|mjs|cjs|jsx|ts|tsx|css)$/i.test(entry.name)) files.push(p);
+    }
+  };
+  walk(targetDir);
+  return files;
+}
+
+// Students sometimes hide the add-note form behind a button (modal/FAB). Read
+// the source first to confirm a form actually exists, then try to reveal it.
+function sourceHasForm(targetDir) {
+  if (!targetDir) return false;
+
+  let hasInput = false;
+  let hasTextarea = false;
+  for (const file of collectSourceFiles(targetDir)) {
+    let src;
+    try {
+      src = fs.readFileSync(file, "utf8");
+    } catch (e) {
+      continue;
+    }
+    if (!hasInput) {
+      hasInput = /<\s*input\b/i.test(src) || /createElement\(\s*["']input\b/i.test(src);
+    }
+    if (!hasTextarea) {
+      hasTextarea = /<\s*textarea\b/i.test(src) || /createElement\(\s*["']textarea\b/i.test(src);
+    }
+    if (hasInput && hasTextarea) return true;
+  }
+  return false;
+}
+
+const REVEAL_KEYWORDS = ["tambah", "add", "new", "buat", "baru", "tulis", "create", "+"];
+
+// Clicks the (skip+1)-th visible button that looks like it opens the form.
+async function clickRevealButton(page, skip) {
+  return await page.evaluate(
+    ({ keywords, skip }) => {
+      const matches = [];
+      function scan(node) {
+        if (!node || node.nodeType !== 1) return;
+        const tag = node.tagName.toLowerCase();
+        const role = (node.getAttribute("role") || "").toLowerCase();
+        const cls = typeof node.className === "string" ? node.className.toLowerCase() : "";
+        const isButtonLike =
+          tag === "button" ||
+          tag === "a" ||
+          role === "button" ||
+          cls.includes("btn") ||
+          cls.includes("button") ||
+          cls.includes("fab");
+        if (isButtonLike) {
+          const text = (
+            (node.getAttribute("aria-label") || "") +
+            " " +
+            (node.textContent || "") +
+            " " +
+            (node.id || "") +
+            " " +
+            cls
+          ).toLowerCase();
+          const rect = node.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0 && keywords.some((k) => text.includes(k))) {
+            matches.push(node);
+          }
+        }
+        if (node.shadowRoot) Array.from(node.shadowRoot.childNodes).forEach(scan);
+        Array.from(node.children).forEach(scan);
+      }
+      scan(document.body);
+      if (matches[skip]) {
+        matches[skip].click();
+        return true;
+      }
+      return false;
+    },
+    { keywords: REVEAL_KEYWORDS, skip },
   );
-
-  await titleInput.fill("");
-  await titleInput.type("a");
-  await titleInput.evaluate((el) => el.dispatchEvent(new Event("blur")));
-  await page.waitForTimeout(500);
-
-  const isValid = await titleInput.evaluate((el) => el.validity.valid);
-  const hasCustomError = await page.evaluate(() => {
-    const html = document.body.innerHTML.toLowerCase();
-    return (
-      html.includes("tidak boleh kosong") ||
-      html.includes("harus diisi") ||
-      html.includes("wajib diisi") ||
-      html.includes("minimal") ||
-      html.includes("karakter")
-    );
-  });
-
-  return hasHTML5Validation || !isValid || hasCustomError;
 }
 
-async function scanWebComponents(page) {
-  return await page.evaluate(() => {
+async function detectFormInputs(page, targetDir) {
+  let found = await tryDetectFormInputs(page);
+  if (found.titleInput || !sourceHasForm(targetDir)) return found;
+
+  for (let i = 0; i < 6 && !found.titleInput; i++) {
+    const clicked = await clickRevealButton(page, i);
+    if (!clicked) break;
+    await page.waitForTimeout(800);
+    found = await tryDetectFormInputs(page);
+  }
+  return found;
+}
+
+// For the API sniper (sub2): a reload can close the form again, so re-reveal
+// before injecting if the title input is no longer visible.
+async function ensureFormVisible(page, titleInput) {
+  if (!titleInput) return;
+  if (await titleInput.isVisible().catch(() => false)) return;
+  for (let i = 0; i < 6; i++) {
+    const clicked = await clickRevealButton(page, i);
+    if (!clicked) break;
+    await page.waitForTimeout(800);
+    if (await titleInput.isVisible().catch(() => false)) return;
+  }
+}
+
+const VALIDATION_KEYWORDS = [
+  "tidak boleh kosong",
+  "harus diisi",
+  "wajib diisi",
+  "belum diisi",
+  "minimal",
+  "karakter",
+  "terlalu pendek",
+  "too short",
+  "required",
+  "tidak valid",
+  "invalid",
+  "harus lebih",
+  "is required",
+];
+
+// Counts *visible* nodes whose text contains a validation phrase. Pre-existing
+// matches (e.g. a note body that happens to contain "minimal") cancel out via
+// before/after diff, so only feedback that appears while typing counts.
+async function countVisibleValidationText(page) {
+  return await page.evaluate((kws) => {
+    let count = 0;
+    function scan(node) {
+      if (!node || node.nodeType !== 1) return;
+      const style = window.getComputedStyle(node);
+      if (
+        style.display === "none" ||
+        style.visibility === "hidden" ||
+        style.opacity === "0"
+      ) return;
+      const rect = node.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return;
+      const text = (node.textContent || "").toLowerCase();
+      if (text.length > 0 && text.length <= 200 && kws.some((k) => text.includes(k))) {
+        count++;
+      }
+      if (node.shadowRoot) Array.from(node.shadowRoot.childNodes).forEach(scan);
+      Array.from(node.children).forEach(scan);
+    }
+    scan(document.body);
+    return count;
+  }, VALIDATION_KEYWORDS);
+}
+
+// Realtime validation must fire as-you-type (on `input`), not on blur/submit.
+// The old check passed on the mere presence of `required`/`minlength`, which is
+// native submit-time validation — a false positive. We now require a visible
+// error message to appear while typing, with no blur or submit dispatched.
+//
+// We arm the validator first (valid value + blur) because a common pattern
+// validates once on blur, then switches to live-on-input afterwards; without
+// arming, those validators stay dormant and we'd wrongly fail them.
+async function checkRealtimeValidation(page, titleInput) {
+  await titleInput.fill("valid title");
+  await titleInput.blur();
+  await page.waitForTimeout(200);
+  const before = await countVisibleValidationText(page);
+
+  // Empty exercises "required"-style rules.
+  await titleInput.fill("");
+  await page.waitForTimeout(300);
+  const emptyCount = await countVisibleValidationText(page);
+
+  // One char exercises "minlength"-style rules.
+  await titleInput.type("a");
+  await page.waitForTimeout(300);
+  const typedCount = await countVisibleValidationText(page);
+
+  return emptyCount > before || typedCount > before;
+}
+
+function scanDefinedWebComponents(targetDir) {
+  const names = new Set();
+  if (!targetDir) return [];
+
+  for (const file of collectSourceFiles(targetDir)) {
+    let src;
+    try {
+      src = fs.readFileSync(file, "utf8");
+    } catch (e) {
+      continue;
+    }
+    const re = /customElements\.define\(\s*["']([^"']+)["']/g;
+    let m;
+    while ((m = re.exec(src))) names.add(m[1].toLowerCase());
+  }
+  return Array.from(names);
+}
+
+// Static source-tree signals for the optional suggestions, used as a first-pass
+// before (or alongside) the live-DOM checks. Mirrors the web-component scan:
+// things set/read only in code or on conditionally-rendered nodes still count.
+function scanSourceForSuggestions(targetDir) {
+  const flags = { hasInputValidation: false, hasCustomAttr: false, hasMediaQuery: false };
+  if (!targetDir) return flags;
+
+  const STANDARD_ATTRS = new Set([
+    "id", "class", "style", "type", "name", "value", "placeholder", "required",
+    "minlength", "maxlength", "title", "href", "src", "alt", "for", "role",
+    "tabindex", "hidden", "disabled", "checked", "selected", "max", "min", "step",
+    "accept", "autocomplete", "autofocus", "cols", "rows", "wrap", "spellcheck",
+    "contenteditable", "draggable", "lang", "dir", "slot", "part",
+  ]);
+
+  for (const file of collectSourceFiles(targetDir)) {
+    let src;
+    try {
+      src = fs.readFileSync(file, "utf8");
+    } catch (e) {
+      continue;
+    }
+
+    if (!flags.hasMediaQuery && /@media\b/.test(src)) flags.hasMediaQuery = true;
+
+    if (!flags.hasCustomAttr) {
+      const re = /(?:get|set)Attribute\(\s*["']([^"']+)["']/g;
+      let m;
+      while ((m = re.exec(src))) {
+        const name = m[1].toLowerCase();
+        if (
+          !STANDARD_ATTRS.has(name) &&
+          !name.startsWith("aria-") &&
+          !name.startsWith("data-")
+        ) {
+          flags.hasCustomAttr = true;
+          break;
+        }
+      }
+    }
+
+    if (!flags.hasCustomAttr) {
+      // observedAttributes = ["custom", ...] or static get observedAttributes()
+      const obsForms = [
+        /observedAttributes\s*=\s*\[([^\]]*)\]/g,
+        /get\s+observedAttributes\s*\(\s*\)\s*\{[^}]*?return\s*\[([^\]]*)\]/g,
+      ];
+      for (const re of obsForms) {
+        let m;
+        while ((m = re.exec(src))) {
+          const names = m[1].match(/["']([^"']+)["']/g) || [];
+          if (
+            names.some((n) => {
+              const name = n.replace(/["']/g, "").toLowerCase();
+              return !STANDARD_ATTRS.has(name) && !name.startsWith("aria-") && !name.startsWith("data-");
+            })
+          ) {
+            flags.hasCustomAttr = true;
+            break;
+          }
+        }
+        if (flags.hasCustomAttr) break;
+      }
+    }
+
+    if (!flags.hasInputValidation) {
+      const hasInputListener = /addEventListener\(\s*["']input["']/.test(src) || /\boninput\s*=/.test(src);
+      const hasValidationHint =
+        /(wajib diisi|tidak boleh kosong|minimal|karakter|aria-invalid|setCustomValidity|\.validity\.)/i.test(src);
+      if (hasInputListener && hasValidationHint) flags.hasInputValidation = true;
+    }
+
+    if (flags.hasMediaQuery && flags.hasCustomAttr && flags.hasInputValidation) break;
+  }
+
+  return flags;
+}
+
+async function scanWebComponents(page, targetDir) {
+  const live = await page.evaluate(() => {
     const customTags = new Set();
     let hasCustomAttr = false;
     const standardAttrs = [
@@ -263,6 +569,13 @@ async function scanWebComponents(page) {
     scanNode(document.body);
     return { tags: Array.from(customTags), hasCustomAttr };
   });
+
+  // Merge source-defined components so conditionally-rendered ones (e.g. an
+  // empty-state shown only when there are no notes) still count.
+  const tags = Array.from(
+    new Set([...live.tags, ...scanDefinedWebComponents(targetDir).map((n) => `<${n}>`)]),
+  );
+  return { tags, hasCustomAttr: live.hasCustomAttr };
 }
 
 async function detectGrid(page) {
@@ -298,7 +611,7 @@ async function detectGrid(page) {
         }
       }
 
-      if (node.shadowRoot) scanNode(node.shadowRoot);
+      if (node.shadowRoot) Array.from(node.shadowRoot.children).forEach(scanNode);
       Array.from(node.children).forEach(scanNode);
     }
     scanNode(document.body);
@@ -306,13 +619,76 @@ async function detectGrid(page) {
   });
 }
 
+// Runtime animation detection: verifies motion actually happens, not just that
+// a library/keyword is present (the static.js INFO path covers that fallback).
+// 1) Counts animations already running (spinners, infinite loops, WAAPI).
+// 2) Hovers an element declaring a transition/animation and confirms a real
+//    :hover transition starts (sampled via document.getAnimations()).
+async function detectAnimation(page) {
+  const runningNow = await page.evaluate(() => {
+    try {
+      return document.getAnimations().filter((a) => a.playState === "running").length;
+    } catch (e) {
+      return 0;
+    }
+  });
+  if (runningNow > 0) return { found: true, detail: `${runningNow} running animation(s)` };
+
+  const candidates = page.locator(
+    "button, a, [class*='card'], [class*='btn'], [class*='item'], [class*='note'], li",
+  );
+  const count = await candidates.count();
+  for (let i = 0; i < Math.min(count, 12); i++) {
+    const el = candidates.nth(i);
+    if (!(await el.isVisible().catch(() => false))) continue;
+
+    const hasFx = await el
+      .evaluate((node) => {
+        const s = window.getComputedStyle(node);
+        const hasTransition = (s.transitionDuration || "0s").split(",").some((d) => {
+          const v = d.trim();
+          return v !== "0s" && v !== "0ms";
+        });
+        return hasTransition || (s.animationName || "none") !== "none";
+      })
+      .catch(() => false);
+    if (!hasFx) continue;
+
+    await el.hover({ force: true }).catch(() => {});
+    let animating = false;
+    for (let t = 0; t < 6 && !animating; t++) {
+      animating = await page
+        .evaluate(() => {
+          try {
+            return document.getAnimations().some((a) => a.playState === "running");
+          } catch (e) {
+            return false;
+          }
+        })
+        .catch(() => false);
+      if (!animating) await page.waitForTimeout(60);
+    }
+    await page.mouse.move(0, 0).catch(() => {});
+
+    if (animating) {
+      const tag = await el.evaluate((node) => node.tagName.toLowerCase()).catch(() => "?");
+      return { found: true, detail: `hover transition on <${tag}>` };
+    }
+  }
+  return { found: false, detail: "" };
+}
+
 module.exports = {
   runCommand,
+  resultKind,
   printSummaryReport,
   colors,
   REQUIRED_NOTES,
   detectFormInputs,
+  ensureFormVisible,
   checkRealtimeValidation,
   scanWebComponents,
   detectGrid,
+  detectAnimation,
+  scanSourceForSuggestions,
 };

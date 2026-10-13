@@ -5,13 +5,13 @@ const {
   detectGrid,
 } = require("../../../../utils");
 
-module.exports = async function runInherited(page, report) {
+module.exports = async function runInherited(page, report, targetDir) {
   try {
     console.log(
       `${colors.cyan}> Verifying inherited Submission 1 criteria...${colors.reset}`,
     );
 
-    const { titleInput, bodyInput, submitBtn } = await detectFormInputs(page);
+    const { titleInput, bodyInput, submitBtn } = await detectFormInputs(page, targetDir);
 
     if (titleInput && bodyInput && submitBtn) {
       const titleTag = await titleInput.evaluate((el) => el.tagName.toLowerCase());
@@ -28,7 +28,7 @@ module.exports = async function runInherited(page, report) {
         "FAIL: Input/Textarea/Submit button tidak terdeteksi";
     }
 
-    const { tags } = await scanWebComponents(page);
+    const { tags } = await scanWebComponents(page, targetDir);
     if (tags.length >= 3) {
       report.mandatory["Criteria 1.2: Inherited Sub 1 Web Components (Min 3)"] =
         `PASS: Found ${tags.join(", ")}`;

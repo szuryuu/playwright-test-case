@@ -1,4 +1,4 @@
-const { colors } = require("../../../../utils");
+const { colors, ensureFormVisible } = require("../../../../utils");
 
 module.exports = async function runApi(page, report, form) {
   const state = {
@@ -70,69 +70,28 @@ module.exports = async function runApi(page, report, form) {
     await dialog.accept();
   });
 
+  // Dismiss any SweetAlert2-style modal overlay. Native window.confirm dialogs
+  // are already auto-accepted by page.on("dialog"). Scope clicks to modal
+  // containers only, so regular page buttons (e.g. a note card's "Hapus") are
+  // never clicked by accident.
   const sweepModals = async () => {
-    for (let i = 0; i < 3; i++) {
-      await page.evaluate(() => {
-        const buttons = [];
-        function scan(node) {
-          if (!node || node.nodeType !== 1) return;
-          if (
-            node.tagName === "BUTTON" ||
-            (node.classList &&
-              (node.classList.contains("swal2-confirm") ||
-                node.classList.contains("swal2-close")))
-          ) {
-            buttons.push(node);
-          }
-          if (node.shadowRoot) Array.from(node.shadowRoot.childNodes).forEach(scan);
-          Array.from(node.childNodes).forEach(scan);
-        }
-        scan(document.body);
-
-        buttons.forEach((el) => {
-          const rect = el.getBoundingClientRect();
-          if (rect.width === 0 || rect.height === 0) return;
-
-          const text = (el.textContent || "").toLowerCase().trim();
-          if (
-            el.matches('.swal2-confirm, .swal2-close, .btn-close, [aria-label*="close" i]') ||
-            text.includes("ok") ||
-            (text.includes("ya") && !text.includes("tidak")) ||
-            text.includes("yes") ||
-            text.includes("tutup") ||
-            text.includes("hapus") ||
-            text.includes("delete") ||
-            text.includes("lanjut") ||
-            text.includes("yakin") ||
-            text.includes("setuju")
-          ) {
-            if (typeof el.click === "function") el.click();
-          }
+    await page.evaluate(() => {
+      document
+        .querySelectorAll(
+          ".swal2-container button, .swal2-popup button, [role='dialog'] button, [role='alertdialog'] button",
+        )
+        .forEach((btn) => {
+          const rect = btn.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) btn.click();
         });
-      });
-      await page.waitForTimeout(500);
-    }
-    await page.keyboard.press("Enter");
-
-    await page
-      .waitForFunction(
-        () => {
-          const swal = document.querySelector(".swal2-container");
-          if (!swal) return true;
-          const style = window.getComputedStyle(swal);
-          return style.display === "none" || style.visibility === "hidden" || style.opacity === "0";
-        },
-        { timeout: 4000 },
-      )
-      .catch(() => {});
-
-    await page.waitForTimeout(1000);
+    });
+    await page.waitForTimeout(800);
   };
 
   const forceClickHeuristic = async (keywords, excludeKeywords = []) => {
     return await page.evaluate(
       ({ keywords, excludeKeywords }) => {
-        let clicked = false;
+        let clicked = null;
         function scan(node) {
           if (!node || node.nodeType !== 1 || clicked) return;
 
@@ -168,7 +127,13 @@ module.exports = async function runApi(page, report, form) {
               const matchesExclude = excludeKeywords.some((e) => stringToSearch.includes(e));
               if (matchesKeyword && !matchesExclude) {
                 node.click();
-                clicked = true;
+                clicked = {
+                  tag: node.tagName.toLowerCase(),
+                  id: node.id || "",
+                  cls: typeof node.className === "string" ? node.className : "",
+                  text: (node.textContent || "").trim().slice(0, 40),
+                  aria: node.getAttribute("aria-label") || "",
+                };
                 return;
               }
             }
@@ -181,6 +146,157 @@ module.exports = async function runApi(page, report, form) {
       },
       { keywords, excludeKeywords },
     );
+  };
+
+  const clickLog = (label, result) => {
+    if (result) {
+      const desc = `<${result.tag}${result.id ? "#" + result.id : ""}${result.cls ? "." + result.cls : ""}> "${result.text}"${result.aria ? " (aria=" + result.aria + ")" : ""}`;
+      console.log(`${colors.green}    [click] ${label} -> ${desc}${colors.reset}`);
+    } else {
+      console.log(`${colors.red}    [click] ${label} -> NONE${colors.reset}`);
+    }
+  };
+
+  // Switch the note list between active/archived views. Handles tab/button
+  // controls, <select> filters, and filter buttons. Retries because controls
+  // are often hidden while the app is loading (artificial API latency).
+  const switchToView = async (mode) => {
+    const cfg =
+      mode === "archived"
+        ? {
+            kw: ["arsip", "archive", "diarsipkan", "tab-archive"],
+            ex: ["unarchive", "batal", "kembali", "pulihkan", "kembalikan", "arsipkan", "trash", "delete", "hapus", "aktif", "active", "semua"],
+          }
+        : {
+            kw: ["semua", "aktif", "active", "home"],
+            ex: ["tab-archive", "arsip", "archive", "diarsip", "pulihkan", "hapus", "delete", "trash"],
+          };
+
+    for (let attempt = 0; attempt < 15; attempt++) {
+      const btn = await forceClickHeuristic(cfg.kw, cfg.ex);
+      if (btn) return { via: "button", text: btn.text };
+
+      const sel = await page.evaluate(
+        ({ mode }) => {
+          for (const select of Array.from(document.querySelectorAll("select"))) {
+            const options = Array.from(select.options);
+            let target = null;
+            if (mode === "archived") {
+              target =
+                options.find((o) => {
+                  const h = `${o.value} ${o.textContent}`.toLowerCase();
+                  return (
+                    (h.includes("archiv") || h.includes("diarsip") || h.includes("arsip")) &&
+                    !h.includes("aktif") &&
+                    !h.includes("active") &&
+                    !h.includes("semua") &&
+                    !h.includes("all")
+                  );
+                }) || null;
+            } else {
+              target =
+                options.find((o) => {
+                  const h = `${o.value} ${o.textContent}`.toLowerCase();
+                  return (
+                    (h.includes("aktif") || h.includes("active")) &&
+                    !h.includes("archiv") &&
+                    !h.includes("diarsip")
+                  );
+                }) ||
+                options.find((o) => {
+                  const h = `${o.value} ${o.textContent}`.toLowerCase();
+                  return (
+                    (h.includes("semua") || h.includes("all")) &&
+                    !h.includes("archiv") &&
+                    !h.includes("diarsip")
+                  );
+                }) ||
+                null;
+            }
+            if (target) {
+              select.value = target.value;
+              select.dispatchEvent(new Event("change", { bubbles: true }));
+              return { value: target.value, text: target.textContent.trim() };
+            }
+          }
+          return null;
+        },
+        { mode },
+      );
+      if (sel) return { via: "select", text: sel.text };
+
+      await page.waitForTimeout(500);
+    }
+    return { via: "none" };
+  };
+
+  // Click a note card's action button (archive/delete toggle), ignoring
+  // toolbar filter/view controls that also mention "archive"/"arsip".
+  const clickNoteActionButton = (keywords) => {
+    return page.evaluate(({ keywords }) => {
+      let result = null;
+      function scan(node, inCard) {
+        if (result || !node || node.nodeType !== 1) return;
+        const tag = node.tagName.toLowerCase();
+        const inNoteCard = inCard || (tag.includes("-") && /note|item|card/.test(tag));
+        const btnLike = tag === "button" || tag === "a" || node.getAttribute("role") === "button";
+        if (btnLike && inNoteCard) {
+          const cls = (typeof node.className === "string" ? node.className : "").toLowerCase();
+          const text = (
+            (node.getAttribute("aria-label") || "") +
+            " " +
+            (node.textContent || "") +
+            " " +
+            cls +
+            " " +
+            (node.id || "")
+          ).toLowerCase();
+          const rect = node.getBoundingClientRect();
+          const vis =
+            rect.width > 0 &&
+            rect.height > 0 &&
+            window.getComputedStyle(node).visibility !== "hidden";
+          if (vis && keywords.some((k) => text.includes(k))) {
+            node.click();
+            result = {
+              tag,
+              aria: node.getAttribute("aria-label") || "",
+              text: (node.textContent || "").trim().slice(0, 30),
+            };
+            return;
+          }
+        }
+        if (node.shadowRoot) Array.from(node.shadowRoot.childNodes).forEach((c) => scan(c, inNoteCard));
+        Array.from(node.children).forEach((c) => scan(c, inNoteCard));
+      }
+      scan(document.body, false);
+      return result;
+    }, { keywords });
+  };
+
+  // Click a confirm button inside a currently-open modal/backdrop/dialog.
+  // Matches aria-label/title (icon-only buttons) as well as visible text.
+  // Playwright locators pierce shadow DOM + slots, so this works for both
+  // SweetAlert and custom <modal-card> components.
+  const clickModalConfirm = async (keywords) => {
+    const sels = [];
+    for (const k of keywords) {
+      sels.push(`button[aria-label*="${k}" i]`, `button[title*="${k}" i]`, `button:has-text("${k}")`);
+    }
+    const overlays = page.locator(
+      'modal-card[open], .modal-backdrop.active, [role="dialog"], .swal2-container',
+    );
+    const count = await overlays.count();
+    for (let i = 0; i < count; i++) {
+      const btn = overlays.nth(i).locator(sels.join(", ")).first();
+      if (await btn.isVisible().catch(() => false)) {
+        const aria = await btn.getAttribute("aria-label").catch(() => "");
+        console.log(`${colors.yellow}    [modal-confirm] -> "${aria || ""}"${colors.reset}`);
+        await btn.click({ force: true }).catch(() => {});
+        return true;
+      }
+    }
+    return false;
   };
 
   try {
@@ -226,6 +342,9 @@ module.exports = async function runApi(page, report, form) {
 
     const { titleInput, bodyInput, submitBtn } = form;
 
+    // A reload (purge step above) may have closed the form again; re-reveal it.
+    await ensureFormVisible(page, titleInput);
+
     if (titleInput && bodyInput && submitBtn) {
       console.log(`${colors.cyan}> Injecting Stage 1: sabotaged payload (error handling)...${colors.reset}`);
       await titleInput.fill("Test Error Handling");
@@ -244,12 +363,14 @@ module.exports = async function runApi(page, report, form) {
       }
 
       console.log(`${colors.cyan}> Injecting Stage 2: valid payload (archive)...${colors.reset}`);
+      await ensureFormVisible(page, titleInput);
       await titleInput.fill(`Target Archive ${Date.now()}`);
       await bodyInput.fill("This note guarantees a target for the Archive Sniper.");
       await submitBtn.click({ force: true });
       await sweepModals();
 
       console.log(`${colors.cyan}> Injecting Stage 3: valid payload (delete)...${colors.reset}`);
+      await ensureFormVisible(page, titleInput);
       await titleInput.fill(`Target Delete ${Date.now()}`);
       await bodyInput.fill("This note guarantees a target for the Delete Sniper.");
       await submitBtn.click({ force: true });
@@ -257,38 +378,58 @@ module.exports = async function runApi(page, report, form) {
     }
 
     console.log(`${colors.cyan}> Auto-sniper: ARCHIVE...${colors.reset}`);
-    const archiveClicked = await forceClickHeuristic(
-      ["archive", "arsip"],
-      ["unarchive", "batal", "kembali", "tab"],
-    );
-    if (!archiveClicked) console.log(`${colors.yellow}  [!] Could not locate Archive button.${colors.reset}`);
+    let archiveNoteBtn = null;
+    for (let i = 0; i < 20 && !archiveNoteBtn; i++) {
+      archiveNoteBtn = await clickNoteActionButton(["archive", "arsipkan", "arsip"]);
+      if (!archiveNoteBtn) await page.waitForTimeout(1000);
+    }
+    clickLog("ARCHIVE", archiveNoteBtn);
+    if (archiveNoteBtn) {
+      for (let i = 0; i < 20 && !state.apiStats.archive; i++) {
+        await page.waitForTimeout(400);
+        if (state.apiStats.archive) break;
+        await clickModalConfirm(["archive", "arsip", "ya", "yes", "ok"]);
+      }
+    }
     await sweepModals();
 
-    console.log(`${colors.cyan}> Auto-sniper: navigate to Archived tab...${colors.reset}`);
-    await forceClickHeuristic(
-      ["arsip", "archive", "tab-archive"],
-      ["unarchive", "batal", "kembali", "btn", "button", "trash"],
-    );
+    console.log(`${colors.cyan}> Auto-sniper: navigate to Archived view...${colors.reset}`);
+    const nav = await switchToView("archived");
+    console.log(`${colors.yellow}    [view] -> ${nav.via}${nav.text ? " (" + nav.text + ")" : ""}${colors.reset}`);
     await page.waitForTimeout(2000);
 
     console.log(`${colors.cyan}> Auto-sniper: UNARCHIVE...${colors.reset}`);
-    const unarchiveClicked = await forceClickHeuristic(
-      ["unarchive", "batal arsip", "kembali", "pindah", "inbox"],
-      ["tab"],
-    );
-    if (!unarchiveClicked) console.log(`${colors.yellow}  [!] Could not locate Unarchive button.${colors.reset}`);
+    let unarchiveNoteBtn = null;
+    for (let i = 0; i < 20 && !unarchiveNoteBtn; i++) {
+      unarchiveNoteBtn = await clickNoteActionButton(["archive", "arsipkan", "arsip"]);
+      if (!unarchiveNoteBtn) await page.waitForTimeout(1000);
+    }
+    clickLog("UNARCHIVE", unarchiveNoteBtn);
+    if (unarchiveNoteBtn) {
+      for (let i = 0; i < 20 && !state.apiStats.unarchive; i++) {
+        await page.waitForTimeout(400);
+        if (state.apiStats.unarchive) break;
+        await clickModalConfirm(["unarchive", "pulihkan", "kembalikan", "restore", "ya", "yes", "ok"]);
+      }
+    }
     await sweepModals();
 
-    console.log(`${colors.cyan}> Auto-sniper: back to Active tab...${colors.reset}`);
-    await forceClickHeuristic(["aktif", "active", "home"], ["tab-archive", "arsip", "archive"]);
+    console.log(`${colors.cyan}> Auto-sniper: back to Active view...${colors.reset}`);
+    const back = await switchToView("active");
+    console.log(`${colors.yellow}    [view] -> ${back.via}${back.text ? " (" + back.text + ")" : ""}${colors.reset}`);
     await page.waitForTimeout(2000);
 
     console.log(`${colors.cyan}> Auto-sniper: DELETE...${colors.reset}`);
-    const deleteClicked = await forceClickHeuristic(["delete", "hapus", "trash"], ["tab"]);
-    if (!deleteClicked) console.log(`${colors.yellow}  [!] Could not locate Delete button.${colors.reset}`);
+    let deleteClicked = null;
+    for (let i = 0; i < 20 && !deleteClicked; i++) {
+      deleteClicked = await clickNoteActionButton(["delete", "hapus", "trash"]);
+      if (!deleteClicked) await page.waitForTimeout(1000);
+    }
+    clickLog("DELETE", deleteClicked);
     await sweepModals();
 
     const { apiStats, loadingStats } = state;
+    console.log(`${colors.yellow}    [stats] ${JSON.stringify(apiStats)}${colors.reset}`);
 
     const missingMethods = [];
     if (!apiStats.get) missingMethods.push("GET");

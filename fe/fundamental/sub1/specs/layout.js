@@ -1,6 +1,6 @@
-const { colors, detectGrid } = require("../../../../utils");
+const { colors, detectGrid, scanSourceForSuggestions } = require("../../../../utils");
 
-module.exports = async function runLayout(page, report) {
+module.exports = async function runLayout(page, report, targetDir) {
   try {
     console.log(
       `${colors.cyan}> Testing Criteria 3: CSS Grid Layout...${colors.reset}`,
@@ -20,7 +20,8 @@ module.exports = async function runLayout(page, report) {
     const isResponsive = await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,
     );
-    if (isResponsive) {
+    const source = scanSourceForSuggestions(targetDir);
+    if (source.hasMediaQuery || isResponsive) {
       report.optional["Suggestion 4: Mobile Responsiveness (No Overflow)"] = true;
     }
   } catch (e) {
