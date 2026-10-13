@@ -105,7 +105,8 @@ func runReview(group, class, sub, zipPath, username string) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	err = extractAndValidateZip(zipPath, tmpDir)
+	requireHTML := group == "fe"
+	err = extractAndValidateZip(zipPath, tmpDir, requireHTML)
 	if err != nil {
 		fmt.Printf("%s[-] [REJECTED] Static validation failed: %v%s\n", Red, err, Reset)
 		os.Exit(1)
@@ -113,13 +114,26 @@ func runReview(group, class, sub, zipPath, username string) {
 
 	fmt.Printf("%s[+] [PASS] Static validation successful. No prohibited frameworks or 'node_modules' detected.%s\n", Green, Reset)
 
-	actualProjectDir := resolveTargetDirectory(tmpDir)
-	if actualProjectDir != tmpDir {
-		fmt.Printf("%s[i] [INFO] Nested directory structure detected. Dynamically adjusting root to: %s%s\n", Yellow, filepath.Base(actualProjectDir), Reset)
+	var actualProjectDir string
+	if group == "be" {
+		actualProjectDir, err = validateBeStructure(tmpDir)
+		if err != nil {
+			fmt.Printf("%s[-] [REJECTED] Structure validation failed: %v%s\n", Red, err, Reset)
+			os.Exit(1)
+		}
+	} else {
+		actualProjectDir = resolveTargetDirectory(tmpDir)
+		if actualProjectDir != tmpDir {
+			fmt.Printf("%s[i] [INFO] Nested directory structure detected. Dynamically adjusting root to: %s%s\n", Yellow, filepath.Base(actualProjectDir), Reset)
+		}
 	}
 
-	fmt.Printf("%s%s[*] [LAYER 2] Handing over to Playwright E2E Runner...%s\n", Bold, Cyan, Reset)
-	runPlaywrightRunner(registryKey, actualProjectDir, username)
+	if group == "be" {
+		fmt.Printf("%s%s[*] [LAYER 2] Handing over to Node Runner...%s\n", Bold, Cyan, Reset)
+	} else {
+		fmt.Printf("%s%s[*] [LAYER 2] Handing over to Playwright E2E Runner...%s\n", Bold, Cyan, Reset)
+	}
+	runRunner(registryKey, actualProjectDir, username)
 }
 
 func getLatestZip() string {
@@ -161,7 +175,7 @@ func getLatestZip() string {
 	return latestFile
 }
 
-func extractAndValidateZip(zipPath string, dest string) error {
+func extractAndValidateZip(zipPath string, dest string, requireHTML bool) error {
 	r, err := zip.OpenReader(zipPath)
 	if err != nil {
 		return fmt.Errorf("failed to open ZIP archive: %v", err)
@@ -171,15 +185,20 @@ func extractAndValidateZip(zipPath string, dest string) error {
 	hasHTML := false
 
 	for _, f := range r.File {
-		if strings.Contains(f.Name, "node_modules/") {
+		// Normalize Windows backslash separators (some students zip with \
+		// instead of /). Without this, files extract as literally-named
+		// "src\app.js" and the browser can't resolve ./src/app.js.
+		name := strings.ReplaceAll(f.Name, "\\", "/")
+
+		if strings.Contains(name, "node_modules/") {
 			return fmt.Errorf("ZIP contains prohibited 'node_modules' directory")
 		}
 
-		if strings.HasSuffix(f.Name, ".html") {
+		if strings.HasSuffix(name, ".html") {
 			hasHTML = true
 		}
 
-		fpath := filepath.Join(dest, f.Name)
+		fpath := filepath.Join(dest, filepath.FromSlash(name))
 
 		if !strings.HasPrefix(fpath, filepath.Clean(dest)+string(os.PathSeparator)) {
 			continue
@@ -205,7 +224,7 @@ func extractAndValidateZip(zipPath string, dest string) error {
 			return err
 		}
 
-		if strings.HasSuffix(f.Name, "package.json") {
+		if strings.HasSuffix(name, "package.json") {
 			content, _ := io.ReadAll(rc)
 			if err := checkFrameworks(content); err != nil {
 				outFile.Close()
@@ -224,7 +243,7 @@ func extractAndValidateZip(zipPath string, dest string) error {
 		}
 	}
 
-	if !hasHTML {
+	if requireHTML && !hasHTML {
 		return fmt.Errorf("no HTML files found anywhere in the project")
 	}
 	return nil
@@ -245,6 +264,45 @@ func checkFrameworks(content []byte) error {
 		}
 	}
 	return nil
+}
+
+// validateBeStructure checks the be/js/basic zip unpacks directly to
+// final-assessment/<the 7 task folders> at shallow depth (per INSTRUCTION.md
+// §2) and returns the final-assessment dir as the project root.
+func validateBeStructure(tmpDir string) (string, error) {
+	required := []string{
+		"01-writing-comments",
+		"02-code-style",
+		"03-writing-test",
+		"optional-04-oop",
+		"optional-05-recursive",
+		"optional-06-full-coverage-testing",
+		"optional-07-real-world-scenario",
+	}
+
+	root := tmpDir
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return "", fmt.Errorf("could not read extracted dir: %v", err)
+	}
+
+	// If the zip wrapped everything in a single folder, unwrap it.
+	for len(entries) == 1 && entries[0].IsDir() {
+		root = filepath.Join(root, entries[0].Name())
+		entries, err = os.ReadDir(root)
+		if err != nil {
+			return "", fmt.Errorf("could not read extracted dir: %v", err)
+		}
+	}
+
+	for _, dir := range required {
+		info, err := os.Stat(filepath.Join(root, dir))
+		if err != nil || !info.IsDir() {
+			return "", fmt.Errorf("missing required folder %s (expected final-assessment/%s)", dir, dir)
+		}
+	}
+
+	return root, nil
 }
 
 func resolveTargetDirectory(baseDir string) string {
@@ -275,7 +333,7 @@ func resolveTargetDirectory(baseDir string) string {
 	return projectRoot
 }
 
-func runPlaywrightRunner(registryKey string, targetDir string, username string) {
+func runRunner(registryKey string, targetDir string, username string) {
 	executablePath, _ := os.Executable()
 	baseDir := filepath.Dir(executablePath)
 	runnerPath := filepath.Join(baseDir, "runner.js")
