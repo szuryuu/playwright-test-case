@@ -3,6 +3,7 @@ const { spawn } = require("child_process");
 const path = require("path");
 const { runCommand, printSummaryReport, colors } = require("../../../utils");
 const { generateFeedback } = require("./feedback");
+const { buildInsightBlock } = require("../../../suggestions");
 
 const validateReject = require("./specs/reject");
 const runCriteria1 = require("./specs/criteria1");
@@ -98,6 +99,12 @@ async function runSub3Tests(targetDir, username) {
     printSummaryReport(report);
 
     const { isCopied, cliHints } = generateFeedback(report);
+
+    const allPassed = Object.values(report.mandatory).every((v) => v === true) &&
+      report.rejected.length === 0;
+    if (allPassed) {
+      console.log(buildInsightBlock("fe-beginner"));
+    }
 
     console.log(
       `\n${colors.bold} --- INLINE CODE HINTS (FOR REVIEWER) ---${colors.reset}`,

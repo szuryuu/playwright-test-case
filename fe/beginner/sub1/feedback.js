@@ -1,4 +1,5 @@
 const { execSync } = require("child_process");
+const { buildInsightBlock } = require("../../../suggestions");
 
 const templates = {
   passAll: `Selamat! Kamu telah berhasil menyelesaikan submission ini dengan sangat baik. Logika JavaScript yang kamu tulis sudah solid dan memenuhi standar kelulusan. Jadikan ilmu dari proyek ini sebagai fondasi untuk tantangan yang lebih kompleks di depan. Tetap semangat!\n\nSebagai saran pengembangan (optional): Beberapa tombol aksi seperti "Delete" dan "Edit" bisa kamu transformasikan menjadi ikon menggunakan library seperti FontAwesome atau Google Material Icons agar UI terlihat lebih bersih dan modern.\n\nKe depannya, cobalah untuk menerapkan konsep Separation of Concerns (SoC). Pisahkan fungsi yang mengurus data murni (Local Storage & Array) dari fungsi yang mengurus antarmuka (DOM Manipulation). Walaupun saat ini semuanya ditulis dalam satu berkas, memisahkan tanggung jawab fungsi akan membuat kodemu jauh lebih mudah dipelihara saat skala aplikasi semakin besar.`,
@@ -144,7 +145,7 @@ function generateFeedback(report) {
     }
 
     if (failedCriteria.length === 0) {
-      feedbackBlocks.push(templates.passAll);
+      feedbackBlocks.push(templates.passAll + buildInsightBlock("fe-beginner"));
       cliHints.push(`[Pass] ${shortTemplates.passAll}`);
     } else {
       feedbackBlocks.push(

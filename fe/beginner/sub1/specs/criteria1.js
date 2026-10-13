@@ -65,10 +65,38 @@ module.exports = async function runCriteria1(page, report) {
 
     page.off("dialog", dialogHandler);
 
+    // Fill any extra required fields the student added (e.g. a category
+    // select), so their own form validation doesn't block the checker's test
+    // submission. Skipping this produces a false "localStorage unused" reject.
+    const fillRequiredExtras = async () => {
+      await page.evaluate(() => {
+        const form =
+          document.querySelector('[data-testid="transactionForm"]') ||
+          document.querySelector("form");
+        if (!form) return;
+        form.querySelectorAll("select[required]").forEach((sel) => {
+          if (sel.value) return;
+          const opt = Array.from(sel.options).find((o) => o.value && !o.disabled);
+          if (opt) {
+            sel.value = opt.value;
+            sel.dispatchEvent(new Event("change", { bubbles: true }));
+          }
+        });
+        form
+          .querySelectorAll("input[required], textarea[required]")
+          .forEach((el) => {
+            if (el.value) return;
+            el.value = "Test";
+            el.dispatchEvent(new Event("input", { bubbles: true }));
+          });
+      });
+    };
+
     await titleInput.fill("Gaji Bulanan");
     await amountInput.fill("5000000");
     await dateInput.fill(dynamicDate);
     await typeSelect.selectOption("income");
+    await fillRequiredExtras();
     await submitBtn.click();
     await page.waitForTimeout(500);
 
@@ -76,6 +104,7 @@ module.exports = async function runCriteria1(page, report) {
     await amountInput.fill("50000");
     await dateInput.fill(dynamicDate);
     await typeSelect.selectOption("expense");
+    await fillRequiredExtras();
     await submitBtn.click();
     await page.waitForTimeout(500);
 
