@@ -401,7 +401,15 @@ module.exports = async function runApi(page, report, form) {
     console.log(`${colors.cyan}> Auto-sniper: UNARCHIVE...${colors.reset}`);
     let unarchiveNoteBtn = null;
     for (let i = 0; i < 20 && !unarchiveNoteBtn; i++) {
-      unarchiveNoteBtn = await clickNoteActionButton(["archive", "arsipkan", "arsip"]);
+      unarchiveNoteBtn = await clickNoteActionButton([
+        "unarchive",
+        "pulihkan",
+        "kembalikan",
+        "restore",
+        "archive", // fallback for submissions that mislabel archived-note actions
+        "arsipkan",
+        "arsip",
+      ]);
       if (!unarchiveNoteBtn) await page.waitForTimeout(1000);
     }
     clickLog("UNARCHIVE", unarchiveNoteBtn);
