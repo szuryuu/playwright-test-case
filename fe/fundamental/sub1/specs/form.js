@@ -2,7 +2,6 @@ const {
   colors,
   detectFormInputs,
   checkRealtimeValidation,
-  scanSourceForSuggestions,
 } = require("../../../../utils");
 
 module.exports = async function runForm(page, report, targetDir) {
@@ -30,8 +29,7 @@ module.exports = async function runForm(page, report, targetDir) {
 
     if (titleInput) {
       const valid = await checkRealtimeValidation(page, titleInput);
-      const source = scanSourceForSuggestions(targetDir);
-      if (source.hasInputValidation || valid) {
+      if (valid) {
         report.optional["Suggestion 2: Realtime Form Validation"] = true;
       }
     }
