@@ -14,11 +14,11 @@ const CLASS_PATHS = {
   ],
   "fe-fundamental-sub1": [
     "Belajar Membuat Aplikasi Web dengan React. Kamu akan mengelola state aplikasi Notes dengan pendekatan komponen dan hooks, lanjutan alami dari Web Components yang kamu bangun di sini.",
-    "Menjadi Front-End Web Developer Expert. Kelas ini memperdalam testing, performa, dan arsitektur aplikasi front-end skala besar.",
+    "Belajar Pengembangan Web Intermediate. Kelas ini memperdalam pengembangan aplikasi web modern dan praktik kualitas aplikasi front-end.",
     "Belajar Fundamental Aplikasi Web dengan React. Kamu akan mempelajari dasar React, state management, dan cara membangun single-page application.",
   ],
   "fe-fundamental-sub2": [
-    "Menjadi Front-End Web Developer Expert. Kelas ini memperdalam testing, performa, dan arsitektur aplikasi front-end skala besar.",
+    "Belajar Pengembangan Web Intermediate. Kelas ini memperdalam pengembangan aplikasi web modern dan praktik kualitas aplikasi front-end.",
     "Belajar Membuat Aplikasi Web dengan React. Kamu akan mengelola data dari REST API dengan pendekatan komponen dan state management yang lebih terstruktur.",
   ],
 };
