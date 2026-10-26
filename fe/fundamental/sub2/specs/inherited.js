@@ -3,6 +3,7 @@ const {
   detectFormInputs,
   scanWebComponents,
   detectGrid,
+  sourceHasGrid,
 } = require("../../../../utils");
 
 module.exports = async function runInherited(page, report, targetDir) {
@@ -41,6 +42,10 @@ module.exports = async function runInherited(page, report, targetDir) {
     if (gridInfo) {
       report.mandatory["Criteria 1.3: Inherited Sub 1 CSS Grid Layout"] =
         `PASS: Applied on ${gridInfo}`;
+    } else if (sourceHasGrid(targetDir)) {
+      // Empty/loading lists may intentionally render no grid children yet.
+      report.mandatory["Criteria 1.3: Inherited Sub 1 CSS Grid Layout"] =
+        "PASS: CSS Grid declared in source";
     } else {
       report.mandatory["Criteria 1.3: Inherited Sub 1 CSS Grid Layout"] =
         "FAIL: List is not using CSS Grid";

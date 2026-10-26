@@ -578,6 +578,19 @@ async function scanWebComponents(page, targetDir) {
   return { tags, hasCustomAttr: live.hasCustomAttr };
 }
 
+function sourceHasGrid(targetDir) {
+  for (const file of collectSourceFiles(targetDir)) {
+    let src;
+    try {
+      src = fs.readFileSync(file, "utf8");
+    } catch (e) {
+      continue;
+    }
+    if (/\bdisplay\s*:\s*(?:inline-)?grid\b/i.test(src)) return true;
+  }
+  return false;
+}
+
 async function detectGrid(page) {
   return await page.evaluate(() => {
     let foundGridContext = null;
@@ -689,6 +702,7 @@ module.exports = {
   checkRealtimeValidation,
   scanWebComponents,
   detectGrid,
+  sourceHasGrid,
   detectAnimation,
   scanSourceForSuggestions,
 };

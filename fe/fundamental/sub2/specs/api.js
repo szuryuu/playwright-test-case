@@ -238,12 +238,28 @@ module.exports = async function runApi(page, report, form) {
       function scan(node, inCard) {
         if (result || !node || node.nodeType !== 1) return;
         const tag = node.tagName.toLowerCase();
-        const inNoteCard = inCard || (tag.includes("-") && /note|item|card/.test(tag));
+        // `note-filter` also contains "note", but its Archive tab is a view
+        // control, not an action on a note. Only descend into card/item-like
+        // components and exclude supporting components.
+        const isNoteCard =
+          tag.includes("-") &&
+          /note|item|card/.test(tag) &&
+          !/filter|form|modal|header|list|archive/.test(tag);
+        const inNoteCard = inCard || isNoteCard;
         const btnLike = tag === "button" || tag === "a" || node.getAttribute("role") === "button";
         if (btnLike && inNoteCard) {
           const cls = (typeof node.className === "string" ? node.className : "").toLowerCase();
+          // Generated labels commonly append the note title (e.g. "Lihat
+          // detail catatan Target Archive"). Do not let that title make a
+          // detail button look like an archive action.
+          const aria = (node.getAttribute("aria-label") || "").replace(
+            /\s+(catatan|note)\b.*$/i,
+            "",
+          );
           const text = (
-            (node.getAttribute("aria-label") || "") +
+            aria +
+            " " +
+            (node.getAttribute("data-action") || "") +
             " " +
             (node.textContent || "") +
             " " +
@@ -350,17 +366,17 @@ module.exports = async function runApi(page, report, form) {
       await titleInput.fill("Test Error Handling");
       await bodyInput.fill("Testing API failure response.");
       await submitBtn.click({ force: true });
-      await sweepModals();
-
-      if (state.isErrorHandled) {
+      // Check the transient alert before dismissing it. Previously this check
+      // ran after sweepModals(), so SweetAlert feedback vanished first.
+      await page.waitForTimeout(300);
+      const hasErrorText = await page.evaluate(() => {
+        const html = document.body.innerText.toLowerCase();
+        return html.includes("gagal") || html.includes("error") || html.includes("periksa koneksi");
+      });
+      if (state.isErrorHandled || hasErrorText) {
         report.optional["Suggestion 2: Error Feedback Handled"] = true;
-      } else {
-        const hasErrorText = await page.evaluate(() => {
-          const html = document.body.innerHTML.toLowerCase();
-          return html.includes("gagal") || html.includes("error") || html.includes("periksa koneksi");
-        });
-        if (hasErrorText) report.optional["Suggestion 2: Error Feedback Handled"] = true;
       }
+      await sweepModals();
 
       console.log(`${colors.cyan}> Injecting Stage 2: valid payload (archive)...${colors.reset}`);
       await ensureFormVisible(page, titleInput);
@@ -434,6 +450,13 @@ module.exports = async function runApi(page, report, form) {
       if (!deleteClicked) await page.waitForTimeout(1000);
     }
     clickLog("DELETE", deleteClicked);
+    if (deleteClicked) {
+      for (let i = 0; i < 20 && !state.apiStats.delete; i++) {
+        await page.waitForTimeout(400);
+        if (state.apiStats.delete) break;
+        await clickModalConfirm(["delete", "hapus", "ya", "yes", "ok", "confirm"]);
+      }
+    }
     await sweepModals();
 
     const { apiStats, loadingStats } = state;
