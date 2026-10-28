@@ -169,7 +169,7 @@ module.exports = async function runApi(page, report, form) {
           }
         : {
             kw: ["semua", "aktif", "active", "home"],
-            ex: ["tab-archive", "arsip", "archive", "diarsip", "pulihkan", "hapus", "delete", "trash"],
+            ex: ["tab-archive", "arsip", "archive", "diarsip", "pulihkan", "aktifkan", "unarchive", "restore", "hapus", "delete", "trash"],
           };
 
     for (let attempt = 0; attempt < 15; attempt++) {
@@ -247,7 +247,10 @@ module.exports = async function runApi(page, report, form) {
           !/filter|form|modal|header|list|archive/.test(tag);
         const inNoteCard = inCard || isNoteCard;
         const btnLike = tag === "button" || tag === "a" || node.getAttribute("role") === "button";
-        if (btnLike && inNoteCard) {
+        const action = (node.getAttribute("data-action") || "").toLowerCase();
+        // Some submissions render actions directly inside <notes-list> rather
+        // than a card component. data-action distinguishes those from filters.
+        if (btnLike && (inNoteCard || action)) {
           const cls = (typeof node.className === "string" ? node.className : "").toLowerCase();
           // Generated labels commonly append the note title (e.g. "Lihat
           // detail catatan Target Archive"). Do not let that title make a
@@ -371,7 +374,12 @@ module.exports = async function runApi(page, report, form) {
       await page.waitForTimeout(300);
       const hasErrorText = await page.evaluate(() => {
         const html = document.body.innerText.toLowerCase();
-        return html.includes("gagal") || html.includes("error") || html.includes("periksa koneksi");
+        return (
+          html.includes("gagal") ||
+          html.includes("error") ||
+          html.includes("failed") ||
+          html.includes("periksa koneksi")
+        );
       });
       if (state.isErrorHandled || hasErrorText) {
         report.optional["Suggestion 2: Error Feedback Handled"] = true;
@@ -422,10 +430,13 @@ module.exports = async function runApi(page, report, form) {
         "pulihkan",
         "kembalikan",
         "restore",
-        "archive", // fallback for submissions that mislabel archived-note actions
-        "arsipkan",
-        "arsip",
+        "aktifkan",
+        "inbox",
       ]);
+      if (!unarchiveNoteBtn) {
+        // Fallback for submissions that mislabel archived-note actions.
+        unarchiveNoteBtn = await clickNoteActionButton(["archive", "arsipkan", "arsip"]);
+      }
       if (!unarchiveNoteBtn) await page.waitForTimeout(1000);
     }
     clickLog("UNARCHIVE", unarchiveNoteBtn);
