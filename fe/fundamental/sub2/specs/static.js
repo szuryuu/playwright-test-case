@@ -5,10 +5,26 @@ const { colors, runCommand } = require("../../../../utils");
 
 const ANIM_LIBS = ["animejs", "gsap", "aos", "framer-motion", "motion"];
 
+function commandFailure(output) {
+  const lines = String(output || "")
+    .replace(/\x1B\[[0-9;]*m/g, "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return lines.slice(-12).join("\n").slice(-2400);
+}
+
 module.exports = function runStatic(targetDir, report) {
   console.log(`${colors.cyan}> Static Environment Analysis...${colors.reset}`);
 
   const pkgPath = path.join(targetDir, "package.json");
+  if (!fs.existsSync(pkgPath)) {
+    const detail = "Missing package.json; this does not appear to be a Webpack Sub 2 submission";
+    console.error(`${colors.red}  [-] FATAL: ${detail}.${colors.reset}`);
+    report.mandatory["Criteria 3: Webpack Bundler & Dev Server Configured"] = `FAIL: ${detail}`;
+    return { buildOk: false };
+  }
+
   if (fs.existsSync(pkgPath)) {
     const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
 
@@ -71,20 +87,25 @@ module.exports = function runStatic(targetDir, report) {
   } catch (e) {}
 
   console.log(`${colors.cyan}> Compiling production build...${colors.reset}`);
-  const installResult = runCommand("npm install", targetDir);
-  if (!installResult) {
+  const installResult = runCommand("npm install", targetDir, true);
+  if (!installResult.ok) {
     console.log(
-      `${colors.yellow}  [!] npm install reported warnings or errors. Proceeding anyway...${colors.reset}`,
+      `${colors.yellow}  [!] npm install failed; attempting the existing dependency tree...${colors.reset}`,
     );
+    const detail = commandFailure(installResult.output);
+    if (detail) console.error(`${colors.yellow}  [npm install]\n${detail}${colors.reset}`);
   }
 
-  const buildResult = runCommand("npm run build", targetDir);
-  if (!buildResult) {
+  const buildResult = runCommand("npm run build", targetDir, true);
+  if (!buildResult.ok) {
+    const detail = commandFailure(buildResult.output);
     console.error(
       `${colors.red}  [-] FATAL: Criteria 3 production compilation failed.${colors.reset}`,
     );
-    report.mandatory["Criteria 3: Webpack Bundler & Dev Server Configured"] = false;
+    if (detail) console.error(`${colors.red}  [npm run build]\n${detail}${colors.reset}`);
+    report.mandatory["Criteria 3: Webpack Bundler & Dev Server Configured"] =
+      `FAIL: ${detail ? detail.split("\n").at(-1) : "npm run build failed"}`;
   }
 
-  return { buildOk: buildResult };
+  return { buildOk: buildResult.ok };
 };

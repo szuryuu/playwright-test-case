@@ -11,12 +11,20 @@ const colors = {
   bold: "\x1b[1m",
 };
 
-function runCommand(command, cwd) {
+function runCommand(command, cwd, captureOutput = false) {
   try {
-    execSync(command, { cwd, stdio: "ignore" });
-    return true;
+    const output = execSync(command, {
+      cwd,
+      stdio: captureOutput ? "pipe" : "ignore",
+      encoding: captureOutput ? "utf8" : undefined,
+    });
+    return captureOutput ? { ok: true, output } : true;
   } catch (e) {
-    return false;
+    if (!captureOutput) return false;
+    return {
+      ok: false,
+      output: `${e.stdout || ""}\n${e.stderr || ""}`,
+    };
   }
 }
 
