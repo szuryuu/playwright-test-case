@@ -454,7 +454,12 @@ async function countVisibleValidationText(page) {
 // We arm the validator first (valid value + blur) because a common pattern
 // validates once on blur, then switches to live-on-input afterwards; without
 // arming, those validators stay dormant and we'd wrongly fail them.
-async function checkRealtimeValidation(page, titleInput) {
+async function checkRealtimeValidation(page, titleInput, bodyInput) {
+  // Keep sibling required fields valid, otherwise their persistent error makes
+  // the before/after count identical even when the title validates on input.
+  if (bodyInput && (await bodyInput.isVisible().catch(() => false))) {
+    await bodyInput.fill("valid body");
+  }
   await titleInput.fill("valid title");
   await titleInput.blur();
   await page.waitForTimeout(200);

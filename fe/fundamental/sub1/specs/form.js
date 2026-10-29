@@ -28,7 +28,7 @@ module.exports = async function runForm(page, report, targetDir) {
     }
 
     if (titleInput) {
-      const valid = await checkRealtimeValidation(page, titleInput);
+      const valid = await checkRealtimeValidation(page, titleInput, bodyInput);
       if (valid) {
         report.optional["Suggestion 2: Realtime Form Validation"] = true;
       }
