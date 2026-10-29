@@ -336,7 +336,13 @@ async function clickRevealButton(page, skip) {
             cls
           ).toLowerCase();
           const rect = node.getBoundingClientRect();
-          if (rect.width > 0 && rect.height > 0 && keywords.some((k) => text.includes(k))) {
+          if (
+            !node.disabled &&
+            node.getAttribute("aria-disabled") !== "true" &&
+            rect.width > 0 &&
+            rect.height > 0 &&
+            keywords.some((k) => text.includes(k))
+          ) {
             matches.push(node);
           }
         }
@@ -371,12 +377,20 @@ async function detectFormInputs(page, targetDir) {
 // before injecting if the title input is no longer visible.
 async function ensureFormVisible(page, titleInput) {
   if (!titleInput) return;
-  if (await titleInput.isVisible().catch(() => false)) return;
-  for (let i = 0; i < 6; i++) {
-    const clicked = await clickRevealButton(page, i);
-    if (!clicked) break;
+  const formReady = async () =>
+    (await titleInput.isVisible().catch(() => false)) &&
+    (await titleInput.isEditable().catch(() => false));
+  if (await formReady()) return;
+
+  // A successful submit may leave the old modal form visible-but-disabled while
+  // its POST and refresh requests settle. Wait for an enabled opener, then
+  // require the input to be visible and editable before the next injection.
+  for (let i = 0; i < 8; i++) {
+    if (await formReady()) return;
+    // Retry the primary opener: it may have been disabled by the previous
+    // submission and become enabled only after its refresh completes.
+    await clickRevealButton(page, 0);
     await page.waitForTimeout(800);
-    if (await titleInput.isVisible().catch(() => false)) return;
   }
 }
 

@@ -122,7 +122,11 @@ module.exports = async function runApi(page, report, form) {
               cls.includes("icon") ||
               cls.includes("trash");
 
-            if (isButtonLike) {
+            if (
+              isButtonLike &&
+              !node.disabled &&
+              node.getAttribute("aria-disabled") !== "true"
+            ) {
               const matchesKeyword = keywords.some((k) => stringToSearch.includes(k));
               const matchesExclude = excludeKeywords.some((e) => stringToSearch.includes(e));
               if (matchesKeyword && !matchesExclude) {
@@ -168,7 +172,7 @@ module.exports = async function runApi(page, report, form) {
             ex: ["unarchive", "batal", "kembali", "pulihkan", "kembalikan", "arsipkan", "trash", "delete", "hapus", "aktif", "active", "semua"],
           }
         : {
-            kw: ["semua", "aktif", "active", "home"],
+            kw: ["semua", "aktif", "active", "all", "home"],
             ex: ["tab-archive", "arsip", "archive", "diarsip", "pulihkan", "aktifkan", "unarchive", "restore", "hapus", "delete", "trash"],
           };
 
@@ -259,12 +263,16 @@ module.exports = async function runApi(page, report, form) {
             /\s+(catatan|note)\b.*$/i,
             "",
           );
+          const ownText = (node.textContent || "").trim();
+          // Prefer a button's own label. ARIA labels often append a note title
+          // (e.g. "Archive Target Delete"), which must not turn Archive into
+          // a Delete match. Icon-only controls still use their ARIA label.
           const text = (
-            aria +
+            (ownText ? "" : aria) +
             " " +
             (node.getAttribute("data-action") || "") +
             " " +
-            (node.textContent || "") +
+            ownText +
             " " +
             cls +
             " " +
@@ -272,6 +280,8 @@ module.exports = async function runApi(page, report, form) {
           ).toLowerCase();
           const rect = node.getBoundingClientRect();
           const vis =
+            !node.disabled &&
+            node.getAttribute("aria-disabled") !== "true" &&
             rect.width > 0 &&
             rect.height > 0 &&
             window.getComputedStyle(node).visibility !== "hidden";
@@ -371,16 +381,25 @@ module.exports = async function runApi(page, report, form) {
       await submitBtn.click({ force: true });
       // Check the transient alert before dismissing it. Previously this check
       // ran after sweepModals(), so SweetAlert feedback vanished first.
-      await page.waitForTimeout(300);
-      const hasErrorText = await page.evaluate(() => {
-        const html = document.body.innerText.toLowerCase();
-        return (
-          html.includes("gagal") ||
-          html.includes("error") ||
-          html.includes("failed") ||
-          html.includes("periksa koneksi")
-        );
-      });
+      let hasErrorText = false;
+      for (let i = 0; i < 8 && !hasErrorText; i++) {
+        await page.waitForTimeout(250);
+        hasErrorText = await page.evaluate(() => {
+          const html = document.body.innerText.toLowerCase();
+          return [
+            "gagal",
+            "error",
+            "failed",
+            "periksa koneksi",
+            "unable",
+            "connection",
+            "server",
+            "went wrong",
+            "try again",
+            "coba lagi",
+          ].some((text) => html.includes(text));
+        });
+      }
       if (state.isErrorHandled || hasErrorText) {
         report.optional["Suggestion 2: Error Feedback Handled"] = true;
       }
