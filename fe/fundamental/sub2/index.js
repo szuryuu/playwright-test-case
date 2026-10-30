@@ -1,5 +1,6 @@
 const { chromium } = require("playwright");
 const { spawn } = require("child_process");
+const net = require("net");
 const { resultKind, printSummaryReport, colors } = require("../../../utils");
 const { buildInsightBlock, buildFailedSuggestionFeedback } = require("../../../suggestions");
 
@@ -7,6 +8,17 @@ const runStatic = require("./specs/static");
 const runInherited = require("./specs/inherited");
 const runApi = require("./specs/api");
 const runAnimation = require("./specs/animation");
+
+function findAvailablePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address();
+      server.close((error) => (error ? reject(error) : resolve(port)));
+    });
+  });
+}
 
 async function runSub2Tests(targetDir) {
   const report = {
@@ -37,17 +49,18 @@ async function runSub2Tests(targetDir) {
     process.exit(1);
   }
 
+  const port = await findAvailablePort();
   console.log(
-    `${colors.cyan}> Initializing Webpack Dev Server (port 8080)...${colors.reset}`,
+    `${colors.cyan}> Initializing Webpack Dev Server (port ${port})...${colors.reset}`,
   );
-  const serverProcess = spawn("npm run start-dev -- --port 8080", {
+  const serverProcess = spawn(`npm run start-dev -- --port ${port}`, {
     cwd: targetDir,
     detached: true,
     shell: true,
-    env: { ...process.env, PORT: "8080" },
+    env: { ...process.env, PORT: String(port) },
   });
 
-  let dynamicUrl = "http://localhost:8080";
+  let dynamicUrl = `http://localhost:${port}`;
   const urlRegex = /http:\/\/(?:localhost|127\.0\.0\.1):(\d+)/i;
 
   serverProcess.stdout.on("data", (data) => {
