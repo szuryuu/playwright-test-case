@@ -395,6 +395,8 @@ module.exports = async function runApi(page, report, form) {
     });
 
     const { titleInput, bodyInput, submitBtn } = form;
+    let archiveTargetTitle = "";
+    let deleteTargetTitle = "";
 
     // A reload (purge step above) may have closed the form again; re-reveal it.
     await ensureFormVisible(page, titleInput);
@@ -432,14 +434,16 @@ module.exports = async function runApi(page, report, form) {
 
       console.log(`${colors.cyan}> Injecting Stage 2: valid payload (archive)...${colors.reset}`);
       await ensureFormVisible(page, titleInput);
-      await titleInput.fill(`Target Archive ${Date.now()}`);
+      archiveTargetTitle = `Target Archive ${Date.now()}`;
+      await titleInput.fill(archiveTargetTitle);
       await bodyInput.fill("This note guarantees a target for the Archive Sniper.");
       await submitBtn.click({ force: true });
       await sweepModals();
 
       console.log(`${colors.cyan}> Injecting Stage 3: valid payload (delete)...${colors.reset}`);
       await ensureFormVisible(page, titleInput);
-      await titleInput.fill(`Target Delete ${Date.now()}`);
+      deleteTargetTitle = `Target Delete ${Date.now()}`;
+      await titleInput.fill(deleteTargetTitle);
       await bodyInput.fill("This note guarantees a target for the Delete Sniper.");
       await submitBtn.click({ force: true });
       await sweepModals();
@@ -450,7 +454,7 @@ module.exports = async function runApi(page, report, form) {
     for (let i = 0; i < 20 && !archiveNoteBtn; i++) {
       archiveNoteBtn = await clickNoteActionButton(
         ["archive", "arsipkan", "arsip"],
-        "Target Archive",
+        archiveTargetTitle || "Target Archive",
       );
       if (!archiveNoteBtn) await page.waitForTimeout(1000);
     }
@@ -478,13 +482,13 @@ module.exports = async function runApi(page, report, form) {
     for (let i = 0; i < 20 && !unarchiveNoteBtn; i++) {
       unarchiveNoteBtn = await clickNoteActionButton(
         ["unarchive", "pulihkan", "kembalikan", "restore", "aktifkan", "inbox"],
-        "Target Archive",
+        archiveTargetTitle || "Target Archive",
       );
       if (!unarchiveNoteBtn) {
         // Fallback for submissions that mislabel archived-note actions.
         unarchiveNoteBtn = await clickNoteActionButton(
           ["archive", "arsipkan", "arsip"],
-          "Target Archive",
+          archiveTargetTitle || "Target Archive",
         );
       }
       if (!unarchiveNoteBtn) await page.waitForTimeout(1000);
@@ -512,7 +516,9 @@ module.exports = async function runApi(page, report, form) {
       // we just unarchived: some apps replace their API list between views.
       deleteClicked = await clickNoteActionButton(
         ["delete", "hapus", "trash"],
-        i < 5 ? "Target Delete" : "Target Archive",
+        i < 5
+          ? deleteTargetTitle || "Target Delete"
+          : archiveTargetTitle || "Target Archive",
       );
       if (!deleteClicked) await page.waitForTimeout(1000);
     }
