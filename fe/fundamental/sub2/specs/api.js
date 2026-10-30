@@ -236,9 +236,30 @@ module.exports = async function runApi(page, report, form) {
 
   // Click a note card's action button (archive/delete toggle), ignoring
   // toolbar filter/view controls that also mention "archive"/"arsip".
-  const clickNoteActionButton = (keywords) => {
-    return page.evaluate(({ keywords }) => {
+  const clickNoteActionButton = (keywords, targetText = "") => {
+    return page.evaluate(({ keywords, targetText }) => {
       let result = null;
+      const belongsToTarget = (node) => {
+        if (!targetText) return true;
+        for (let current = node; current; ) {
+          if (current.nodeType === 1) {
+            const tag = current.tagName.toLowerCase();
+            const cls = typeof current.className === "string" ? current.className : "";
+            const isCard =
+              tag === "article" ||
+              (tag.includes("-") &&
+                /note|item|card/.test(tag) &&
+                !/list|filter|form|modal/.test(tag)) ||
+              /\b(?:note-)?card\b/i.test(cls);
+            // Stop at the nearest card/item. Reaching <body> would make every
+            // button match whenever the target title exists anywhere on page.
+            if (isCard) return (current.textContent || "").includes(targetText);
+          }
+          const root = current.getRootNode?.();
+          current = current.parentElement || root?.host || null;
+        }
+        return false;
+      };
       function scan(node, inCard) {
         if (result || !node || node.nodeType !== 1) return;
         const tag = node.tagName.toLowerCase();
@@ -285,7 +306,11 @@ module.exports = async function runApi(page, report, form) {
             rect.width > 0 &&
             rect.height > 0 &&
             window.getComputedStyle(node).visibility !== "hidden";
-          if (vis && keywords.some((k) => text.includes(k))) {
+          if (
+            vis &&
+            belongsToTarget(node) &&
+            keywords.some((k) => text.includes(k))
+          ) {
             node.click();
             result = {
               tag,
@@ -300,7 +325,7 @@ module.exports = async function runApi(page, report, form) {
       }
       scan(document.body, false);
       return result;
-    }, { keywords });
+    }, { keywords, targetText });
   };
 
   // Click a confirm button inside a currently-open modal/backdrop/dialog.
@@ -423,7 +448,10 @@ module.exports = async function runApi(page, report, form) {
     console.log(`${colors.cyan}> Auto-sniper: ARCHIVE...${colors.reset}`);
     let archiveNoteBtn = null;
     for (let i = 0; i < 20 && !archiveNoteBtn; i++) {
-      archiveNoteBtn = await clickNoteActionButton(["archive", "arsipkan", "arsip"]);
+      archiveNoteBtn = await clickNoteActionButton(
+        ["archive", "arsipkan", "arsip"],
+        "Target Archive",
+      );
       if (!archiveNoteBtn) await page.waitForTimeout(1000);
     }
     clickLog("ARCHIVE", archiveNoteBtn);
@@ -435,6 +463,10 @@ module.exports = async function runApi(page, report, form) {
       }
     }
     await sweepModals();
+    // Intercepted requests are marked when they start; many apps then refresh
+    // the list with another delayed GET. Let that UI transaction finish before
+    // clicking a view control that may otherwise ignore clicks while loading.
+    await page.waitForTimeout(3500);
 
     console.log(`${colors.cyan}> Auto-sniper: navigate to Archived view...${colors.reset}`);
     const nav = await switchToView("archived");
@@ -444,17 +476,16 @@ module.exports = async function runApi(page, report, form) {
     console.log(`${colors.cyan}> Auto-sniper: UNARCHIVE...${colors.reset}`);
     let unarchiveNoteBtn = null;
     for (let i = 0; i < 20 && !unarchiveNoteBtn; i++) {
-      unarchiveNoteBtn = await clickNoteActionButton([
-        "unarchive",
-        "pulihkan",
-        "kembalikan",
-        "restore",
-        "aktifkan",
-        "inbox",
-      ]);
+      unarchiveNoteBtn = await clickNoteActionButton(
+        ["unarchive", "pulihkan", "kembalikan", "restore", "aktifkan", "inbox"],
+        "Target Archive",
+      );
       if (!unarchiveNoteBtn) {
         // Fallback for submissions that mislabel archived-note actions.
-        unarchiveNoteBtn = await clickNoteActionButton(["archive", "arsipkan", "arsip"]);
+        unarchiveNoteBtn = await clickNoteActionButton(
+          ["archive", "arsipkan", "arsip"],
+          "Target Archive",
+        );
       }
       if (!unarchiveNoteBtn) await page.waitForTimeout(1000);
     }
@@ -467,6 +498,7 @@ module.exports = async function runApi(page, report, form) {
       }
     }
     await sweepModals();
+    await page.waitForTimeout(3500);
 
     console.log(`${colors.cyan}> Auto-sniper: back to Active view...${colors.reset}`);
     const back = await switchToView("active");
@@ -476,7 +508,12 @@ module.exports = async function runApi(page, report, form) {
     console.log(`${colors.cyan}> Auto-sniper: DELETE...${colors.reset}`);
     let deleteClicked = null;
     for (let i = 0; i < 20 && !deleteClicked; i++) {
-      deleteClicked = await clickNoteActionButton(["delete", "hapus", "trash"]);
+      // Prefer the separate delete target, but after a short wait use the note
+      // we just unarchived: some apps replace their API list between views.
+      deleteClicked = await clickNoteActionButton(
+        ["delete", "hapus", "trash"],
+        i < 5 ? "Target Delete" : "Target Archive",
+      );
       if (!deleteClicked) await page.waitForTimeout(1000);
     }
     clickLog("DELETE", deleteClicked);
