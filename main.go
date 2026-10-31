@@ -204,13 +204,17 @@ func extractAndValidateZip(zipPath string, dest string, requireHTML bool) error 
 			continue
 		}
 
-		if f.FileInfo().IsDir() {
-			os.MkdirAll(fpath, os.ModePerm)
+		// archive/zip treats only trailing '/' as a directory marker. Windows
+		// archives use '\\', so check the normalized path as well.
+		if strings.HasSuffix(name, "/") || f.FileInfo().IsDir() {
+			if err = os.MkdirAll(fpath, os.ModePerm); err != nil {
+				return fmt.Errorf("create directory %q: %w", name, err)
+			}
 			continue
 		}
 
 		if err = os.MkdirAll(filepath.Dir(fpath), os.ModePerm); err != nil {
-			return err
+			return fmt.Errorf("create parent for %q: %w", name, err)
 		}
 
 		outFile, err := os.OpenFile(fpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
